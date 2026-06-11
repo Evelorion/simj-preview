@@ -841,7 +841,6 @@ object OperatorLogoAssets {
         "MD|moldcell" to "file:///android_asset/operator_logos/md_moldcell.png",
         "BY|mts belarus" to "file:///android_asset/operator_logos/by_mts_belarus.png",
         "BY|a1 belarus" to "file:///android_asset/operator_logos/by_a1_belarus.png",
-        "BY|life:) belarus" to "file:///android_asset/operator_logos/by_life___belarus.png",
         "UA|kyivstar" to "file:///android_asset/operator_logos/ua_kyivstar.png",
         "UA|vodafone ukraine" to "file:///android_asset/operator_logos/ua_vodafone_ukraine.png",
         "UA|lifecell" to "file:///android_asset/operator_logos/ua_lifecell.png",
@@ -1008,7 +1007,7 @@ object OperatorLogoAssets {
         "DO|altice dominican republic" to "file:///android_asset/operator_logos/do_altice_dominican_republic.png",
         "DO|viva dominican republic" to "file:///android_asset/operator_logos/do_viva_dominican_republic.png",
         "JM|digicel jamaica" to "file:///android_asset/operator_logos/jm_digicel_jamaica.png",
-        "JM|flow jamaica" to "file:///android_asset/operator_logos/jm_flow_jamaica.png",
+        "JM|flow jamaica" to "file:///android_asset/operator_logos/jm_flow_jamaica.png"
     )
     fun assetFor(name:String, iso:String?=null):String {
         val q=name.trim().lowercase()
