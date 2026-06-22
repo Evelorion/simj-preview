@@ -424,13 +424,14 @@ fun shareExportFile(ctx:Context,fileName:String,mime:String,content:String,title
     var hidden by remember{ mutableStateOf(true) }
     var del by remember{ mutableStateOf(false) }
     var keep by remember{ mutableStateOf(false) }
-    val cardBg=if(dark) Color(0xFF1E2430).copy(alpha=.85f) else Color.White.copy(alpha=.35f); val cardBorder=if(dark) Color(0xFF2A3040).copy(alpha=.60f) else Color.White.copy(alpha=.50f); val txtPrimary=if(dark) Color(0xFFE8EAED) else Color(0xFF111827); val txtSecondary=if(dark) Color(0xFF9AA0A6) else Color(0xFF6B7280); val txtBody=if(dark) Color(0xFFD1D5DB) else Color(0xFF374151)
+    val cardBg=if(dark) Color(0xFF1E2430).copy(alpha=.85f) else Color.White.copy(alpha=.35f); val cardBorder=if(dark) Color(0xFF2A3040).copy(alpha=.60f) else Color.White.copy(alpha=.50f); val txtPrimary=if(dark) Color(0xFFE8EAED) else if(showFlag) Color.White else Color(0xFF111827); val txtSecondary=if(dark) Color(0xFF9AA0A6) else if(showFlag) Color.White.copy(alpha=.85f) else Color(0xFF6B7280); val txtBody=if(dark) Color(0xFFD1D5DB) else if(showFlag) Color.White.copy(alpha=.9f) else Color(0xFF374151)
     Card(shape=RoundedCornerShape(24.dp),colors=CardDefaults.cardColors(containerColor=cardBg),elevation=CardDefaults.cardElevation(0.dp),modifier=Modifier.fillMaxWidth().height(150.dp).border(1.dp,cardBorder,RoundedCornerShape(24.dp))){
         Box(Modifier.fillMaxSize()){
             // frosted glass shimmer
             val glass=if(dark) listOf(Color(0xFF1E2430).copy(alpha=.15f),Color(0xFF1E2430).copy(alpha=.06f),Color(0xFF1E2430).copy(alpha=.12f)) else listOf(Color.White.copy(alpha=.18f),Color.White.copy(alpha=.08f),Color.White.copy(alpha=.15f)); Box(Modifier.fillMaxSize().background(Brush.verticalGradient(glass)).clip(RoundedCornerShape(24.dp)))
             if(showFlag){
-                FlagArtPanel(r,Modifier.align(Alignment.CenterEnd).fillMaxHeight().fillMaxWidth(.43f))
+                FlagArtPanel(r,Modifier.fillMaxSize())
+            Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha=0.3f)))
             }
             Column(Modifier.fillMaxSize().padding(start=10.dp,end=10.dp,top=7.dp,bottom=6.dp),verticalArrangement=Arrangement.SpaceBetween){
                 Row(verticalAlignment=Alignment.CenterVertically){
@@ -454,7 +455,7 @@ fun shareExportFile(ctx:Context,fileName:String,mime:String,content:String,title
                     Spacer(Modifier.width(8.dp))
                     Text(if(hidden)"◉" else "◎",fontSize=16.sp,color=txtBody,modifier=Modifier.clickable{hidden=!hidden})
                 }
-                Row(verticalAlignment=Alignment.CenterVertically){Text("EID ${r.eid.ifBlank{fakeEidForCard(r)}}",fontSize=10.sp,color=txtSecondary,maxLines=1,overflow=TextOverflow.Ellipsis,modifier=Modifier.weight(1f)); Text(signalIcon(r.signalStatus)+" "+r.signalStatus,fontSize=10.sp,color=Color(0xFF16A34A),maxLines=1)}
+                Row(verticalAlignment=Alignment.CenterVertically){Text("EID ${r.eid.ifBlank{fakeEidForCard(r)}}",fontSize=10.sp,color=if(dark) Color(0xFFB0B8C4) else txtSecondary,maxLines=1,overflow=TextOverflow.Ellipsis,modifier=Modifier.weight(1f)); Text(signalIcon(r.signalStatus)+" "+r.signalStatus,fontSize=10.sp,color=Color(0xFF16A34A),maxLines=1)}
                 Box(Modifier.fillMaxWidth(.80f).height(4.dp).clip(RoundedCornerShape(2.dp)).background(Color(0xFFE5E7EB))){Box(Modifier.fillMaxWidth(progress).fillMaxHeight().background(Color(0xFF22C55E)))}
                 Spacer(Modifier.height(2.dp))
                 Row(horizontalArrangement=Arrangement.spacedBy(18.dp)){
@@ -1849,8 +1850,6 @@ fun cloudPost(s:App设置,path:String,body:String,lang:String="简体中文",onR
             IOSSwitchRow(S("启用云端提醒"),st.cloudEnabled){ st=st.copyMut{cloudEnabled=it}; on(st) }
             IOSSwitchRow(S("自动同步"),st.cloudAutoSync){ st=st.copyMut{cloudAutoSync=it}; on(st) }
             Text(S("自动同步说明"),fontSize=11.sp,color=Color(0xFF8A94A6),lineHeight=16.sp)
-            PlainInput(S("服务地址"),st.cloudUrl){ st=st.copyMut{cloudUrl=it}; on(st) }
-            Text(S("服务地址说明"),fontSize=11.sp,color=Color(0xFF8A94A6),lineHeight=16.sp)
             PlainInput("API Key",st.cloudApiKey){ st=st.copyMut{cloudApiKey=cleanCloudApiKey(it)}; on(st) }
             Text(S("API Key说明"),fontSize=11.sp,color=Color(0xFF8A94A6),lineHeight=16.sp)
             Text(S("当前 API Key：")+if(st.cloudApiKey.isNotBlank()) cleanCloudApiKey(st.cloudApiKey) else S("未设置"),fontSize=12.sp,color=Color(0xFF8A94A6),lineHeight=17.sp)
