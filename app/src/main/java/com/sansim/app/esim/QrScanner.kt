@@ -25,6 +25,7 @@ import androidx.core.content.ContextCompat
 import com.google.mlkit.vision.barcode.BarcodeScanning
 import com.google.mlkit.vision.barcode.common.Barcode
 import com.google.mlkit.vision.common.InputImage
+import android.net.Uri
 import java.util.concurrent.Executors
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -34,6 +35,23 @@ fun QrScannerDialog(onDismiss: () -> Unit, onResult: (String) -> Unit) {
     var granted by remember { mutableStateOf(ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) }
     val launcher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted = it }
     LaunchedEffect(Unit) { if (!granted) launcher.launch(Manifest.permission.CAMERA) }
+    
+    val albumLauncher = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri: Uri? ->
+        if (uri != null) {
+            try {
+                val image = InputImage.fromFilePath(context, uri)
+                val scanner = BarcodeScanning.getClient()
+                scanner.process(image)
+                    .addOnSuccessListener { codes ->
+                        val value = codes.firstOrNull { it.format == Barcode.FORMAT_QR_CODE }?.rawValue
+                            ?: codes.firstOrNull()?.rawValue
+                        if (!value.isNullOrBlank()) {
+                            onResult(value)
+                        }
+                    }
+            } catch (_: Exception) {}
+        }
+    }
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -53,11 +71,16 @@ fun QrScannerDialog(onDismiss: () -> Unit, onResult: (String) -> Unit) {
                             onResult(code)
                         }
                     )
-                    Text(
-                        "请对准 LPA:1$... 二维码",
-                        color = Color.White,
-                        modifier = Modifier.align(Alignment.BottomCenter).padding(12.dp)
-                    )
+                    Column(
+                        modifier = Modifier.align(Alignment.BottomCenter).padding(12.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Text("请对准 LPA:1$... 二维码", color = Color.White)
+                        TextButton(onClick = { albumLauncher.launch("image/*") }) {
+                            Text("从相册选择", color = Color(0xFF007AFF))
+                        }
+                    }
                 }
             }
         },
