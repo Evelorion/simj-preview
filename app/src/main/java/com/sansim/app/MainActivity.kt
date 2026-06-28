@@ -2024,7 +2024,9 @@ fun parseCloudPayloadResponse(text:String):Pair<List<PhoneNumberRecord>,App设�
             IOSSwitchRow(S("启用云端提醒"),st.cloudEnabled){ st=st.copyMut{cloudEnabled=it}; on(st) }
             IOSSwitchRow(S("自动同步"),st.cloudAutoSync){ st=st.copyMut{cloudAutoSync=it}; on(st) }
             Text(S("自动同步说明"),fontSize=11.sp,color=Color(0xFF8A94A6),lineHeight=16.sp)
-            PlainInput(S("服务地址"),st.cloudUrl){ st=st.copyMut{cloudUrl=it}; on(st) }
+            Text("预览版云端服务地址",fontSize=12.sp,fontWeight=FontWeight.SemiBold,color=Color(0xFF007AFF))
+            PlainInput("https://ccs.ziranaa.top:16670",st.cloudUrl){ st=st.copyMut{cloudUrl=it}; on(st) }
+            Text(S("服务地址说明"),fontSize=11.sp,color=Color(0xFF8A94A6),lineHeight=16.sp)
             PlainInput("API Key",st.cloudApiKey){ st=st.copyMut{cloudApiKey=cleanCloudApiKey(it)}; on(st) }
             Text(S("API Key说明"),fontSize=11.sp,color=Color(0xFF8A94A6),lineHeight=16.sp)
             Text(S("当前 API Key：")+if(st.cloudApiKey.isNotBlank()) cleanCloudApiKey(st.cloudApiKey) else S("未设置"),fontSize=12.sp,color=Color(0xFF8A94A6),lineHeight=17.sp)
