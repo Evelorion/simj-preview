@@ -284,7 +284,7 @@ class MainActivity: ComponentActivity(){ private val req=registerForActivityResu
                     val (cloudRecords,cloudSettings)=if(ok) parseCloudPayloadResponse(msg) else Pair(emptyList<PhoneNumberRecord>(),null)
                     val merged=mergeRecords(cloudRecords,rs)
                     val mergedSettings=mergeCloudSettings(st,cloudSettings)
-                    cloudPost(mergedSettings,"/api/sync",cloudPayload(merged,mergedSettings)){_,_->}
+                    cloudPost(mergedSettings,"/api/sync",cloudPayload(merged,mergedSettings)){okSync,_-> if(okSync) cloudPost(mergedSettings,"/api/check-now",cloudPayload(merged,mergedSettings)){_,_->} }
                 }
             }
         }
@@ -2029,6 +2029,18 @@ fun cloudRequest(s:App设置,path:String,method:String="POST",body:String="{}",l
 fun cloudPost(s:App设置,path:String,body:String,lang:String="简体中文",onResult:(Boolean,String)->Unit)=cloudRequest(s,path,"POST",body,lang,onResult)
 fun cloudGet(s:App设置,path:String,lang:String="简体中文",onResult:(Boolean,String)->Unit)=cloudRequest(s,path,"GET","{}",lang,onResult)
 
+fun summarizeCloudCheckResponse(text:String):String{
+    return runCatching{
+        val o=JSONObject(text)
+        val direct=o.optString("message","")
+        if(direct.isNotBlank()) return@runCatching direct
+        val st=o.optJSONObject("stats") ?: o
+        "已检查：${st.optInt("records",0)} 个号码，${st.optInt("due",0)} 个进入提醒区间，邮件 ${st.optInt("mail",0)} 条，TG ${st.optInt("tg",0)} 条，重复跳过 ${st.optInt("duplicate",0)} 条"
+    }.getOrDefault(text.ifBlank{"已完成"})
+}
+
+fun formatTsShort(ts:Long):String = if(ts>0) java.text.SimpleDateFormat("yyyy-MM-dd HH:mm", java.util.Locale.getDefault()).format(java.util.Date(ts*1000L)) else "-"
+
 fun parseCloudPayloadResponse(text:String):Pair<List<PhoneNumberRecord>,App设置?>{
     return runCatching{
         val obj=JSONObject(text)
@@ -2100,6 +2112,10 @@ fun restoreCloudBackupById(st:App设置, backupId:Int, onResult:(Boolean,String)
     var cloudOverviewUpdatedAt by remember{ mutableStateOf(0L) }
     var cloudOverviewHasSettings by remember{ mutableStateOf(false) }
     var cloudOverviewKeyTail by remember{ mutableStateOf("") }
+    var cloudReminderLastCheck by remember{ mutableStateOf(0L) }
+    var cloudReminderNextCheck by remember{ mutableStateOf(0L) }
+    var cloudReminderDueNow by remember{ mutableStateOf(-1) }
+    var cloudReminderStats by remember{ mutableStateOf("") }
     var cloudBackups by remember{ mutableStateOf<List<JSONObject>>(emptyList()) }
     var cloudBackupsTotal by remember{ mutableStateOf(0) }
     var cloudBackupsLimit by remember{ mutableStateOf(20) }
@@ -2136,6 +2152,21 @@ fun restoreCloudBackupById(st:App设置, backupId:Int, onResult:(Boolean,String)
                         }catch(_:Exception){}
                     }
                 }
+            }
+        }
+    }
+    fun loadCloudReminderStatus(){
+        if(cleanCloudApiKey(st.cloudApiKey).isBlank()) return
+        cloudGet(st,"/api/reminder-status"){ok,msg->
+            if(ok){
+                try{
+                    val r=JSONObject(msg)
+                    cloudReminderLastCheck=r.optLong("lastCheckAt",0)
+                    cloudReminderNextCheck=r.optLong("nextCheckAt",0)
+                    cloudReminderDueNow=r.optInt("dueNow",-1)
+                    val ls=r.optJSONObject("lastStats")
+                    cloudReminderStats=if(ls!=null) "最近：到期 ${ls.optInt("due",0)}，邮件 ${ls.optInt("mail",0)}，TG ${ls.optInt("tg",0)}，重复 ${ls.optInt("duplicate",0)}" else ""
+                }catch(_:Exception){}
             }
         }
     }
@@ -2249,6 +2280,7 @@ fun restoreCloudBackupById(st:App设置, backupId:Int, onResult:(Boolean,String)
                         if(ok){
                             showCloudMsg("云端 Key 有效")
                             loadCloudOverview()
+                            loadCloudReminderStatus()
                         }else showCloudMsg(if(msg.isBlank()) S("连接失败") else msg)
                     }
                 },shape=RoundedCornerShape(14.dp),modifier=Modifier.weight(1f)){Text(S("测试连接"))}
@@ -2274,10 +2306,10 @@ fun restoreCloudBackupById(st:App设置, backupId:Int, onResult:(Boolean,String)
                             if(cloudData.first.isNotEmpty()){
                                 if(records.isEmpty()) showCloudMsg("云端已有数据，请先从云端恢复") else cloudSyncChoice=cloudData
                             }else{
-                                if(records.isEmpty()) showCloudMsg("本地暂无号码") else cloudPost(st,"/api/sync",cloudPayload(records,st)){ok2,msg2-> showCloudMsg(if(ok2) S("同步成功") else msg2); if(ok2) loadCloudOverview() }
+                                if(records.isEmpty()) showCloudMsg("本地暂无号码") else cloudPost(st,"/api/sync",cloudPayload(records,st)){ok2,msg2-> showCloudMsg(if(ok2) S("同步成功") else msg2); if(ok2){ loadCloudOverview(); loadCloudReminderStatus(); cloudPost(st,"/api/check-now",cloudPayload(records,st)){_,_->} } }
                             }
                         }else if(msg.contains("404") || msg.contains("暂无") || msg.contains("no cloud data",true)){
-                            if(records.isEmpty()) showCloudMsg("本地暂无号码") else cloudPost(st,"/api/sync",cloudPayload(records,st)){ok2,msg2-> showCloudMsg(if(ok2) S("同步成功") else msg2); if(ok2) loadCloudOverview() }
+                            if(records.isEmpty()) showCloudMsg("本地暂无号码") else cloudPost(st,"/api/sync",cloudPayload(records,st)){ok2,msg2-> showCloudMsg(if(ok2) S("同步成功") else msg2); if(ok2){ loadCloudOverview(); loadCloudReminderStatus(); cloudPost(st,"/api/check-now",cloudPayload(records,st)){_,_->} } }
                         }else showCloudMsg(msg)
                     }
                 },shape=RoundedCornerShape(14.dp),modifier=Modifier.weight(1f)){Text(S("同步到云端"))}
@@ -2326,8 +2358,15 @@ fun restoreCloudBackupById(st:App设置, backupId:Int, onResult:(Boolean,String)
                 Button({ cloudPost(st,"/api/test-telegram",cloudPayload(records,st)){ok,msg-> showCloudMsg(if(ok) S("TG 测试已发送") else msg) } },shape=RoundedCornerShape(14.dp),modifier=Modifier.weight(1f)){Text(S("测试TG"))}
                 Button({ cloudPost(st,"/api/test-email",cloudPayload(records,st)){ok,msg-> showCloudMsg(if(ok) S("邮件测试已发送") else msg) } },shape=RoundedCornerShape(14.dp),modifier=Modifier.weight(1f)){Text(S("测试邮件"))}
             }
-            Button({ cloudPost(st,"/api/check-now",cloudPayload(records,st)){ok,msg-> showCloudMsg(if(ok) S("已触发云端检查") else msg) } },shape=RoundedCornerShape(14.dp),modifier=Modifier.fillMaxWidth()){Text(S("立即检查到期"))}
+            Button({ cloudPost(st,"/api/check-now",cloudPayload(records,st)){ok,msg-> showCloudMsg(if(ok) summarizeCloudCheckResponse(msg) else msg); if(ok) loadCloudReminderStatus() } },shape=RoundedCornerShape(14.dp),modifier=Modifier.fillMaxWidth()){Text(S("立即检查到期"))}
             Text(S("云端服务说明"),fontSize=12.sp,color=Color(0xFF8A94A6),lineHeight=17.sp)
+            if(cleanCloudApiKey(st.cloudApiKey).isNotBlank()){
+                Text("云端自动检查：每日服务器执行",fontSize=12.sp,color=Color(0xFF374151),lineHeight=17.sp)
+                Text("上次检查：${formatTsShort(cloudReminderLastCheck)}",fontSize=12.sp,color=Color(0xFF374151),lineHeight=17.sp)
+                Text("下次检查：${formatTsShort(cloudReminderNextCheck)}",fontSize=12.sp,color=Color(0xFF374151),lineHeight=17.sp)
+                Text("当前即将到期：${if(cloudReminderDueNow>=0) cloudReminderDueNow.toString() else "-"}",fontSize=12.sp,color=Color(0xFF374151),lineHeight=17.sp)
+                if(cloudReminderStats.isNotBlank()) Text(cloudReminderStats,fontSize=12.sp,color=Color(0xFF8A94A6),lineHeight=17.sp)
+            }
             if(cloudMsg.isNotBlank()) Text(cloudMsg,fontSize=12.sp,color=Color(0xFF007AFF),lineHeight=17.sp)
         }
 
@@ -2342,7 +2381,7 @@ fun restoreCloudBackupById(st:App设置, backupId:Int, onResult:(Boolean,String)
                 Text("上次同步：${if(cloudOverviewUpdatedAt>0) java.text.SimpleDateFormat("yyyy-MM-dd HH:mm", java.util.Locale.getDefault()).format(java.util.Date(cloudOverviewUpdatedAt)) else "-"}",fontSize=13.sp,color=Color(0xFF374151))
                 if(cloudMsg.isNotBlank()) Text(cloudMsg,fontSize=12.sp,color=Color(0xFF007AFF),lineHeight=17.sp)
                 Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(8.dp)){
-                    Button({ loadCloudOverview() },shape=RoundedCornerShape(14.dp),modifier=Modifier.weight(1f)){ Text("刷新状态") }
+                    Button({ loadCloudOverview(); loadCloudReminderStatus() },shape=RoundedCornerShape(14.dp),modifier=Modifier.weight(1f)){ Text("刷新状态") }
                     Button({ loadCloudBackups() },shape=RoundedCornerShape(14.dp),modifier=Modifier.weight(1f)){ Text(if(cloudBackupLoading) "加载中..." else "查看备份") }
                     if(cloudBackupsTotal>cloudBackups.size){
                         Button({ loadCloudBackups(cloudBackupsLimit+20) },shape=RoundedCornerShape(14.dp),modifier=Modifier.weight(1f)){ Text("加载更多") }

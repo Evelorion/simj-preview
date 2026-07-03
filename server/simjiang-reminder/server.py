@@ -14,6 +14,10 @@ HOST = '0.0.0.0'
 PORT = 8787
 KEY_RE = re.compile(r'^[A-Za-z0-9_-]{24,80}$')
 SCHEMA_VERSION = '3'
+DEFAULT_CHECK_HOUR = int(os.getenv('SIMJ_REMINDER_HOUR') or '9')
+DEFAULT_CHECK_MINUTE = int(os.getenv('SIMJ_REMINDER_MINUTE') or '0')
+_last_daily_check_day = ''
+
 
 
 def clean_key(k):
@@ -182,6 +186,34 @@ def migrate_legacy(conn):
         conn.execute('DROP TABLE IF EXISTS user_meta_legacy')
     commit_and_checkpoint(conn)
 
+
+def table_columns(conn, table):
+    try:
+        return [r['name'] for r in conn.execute("pragma table_info('%s')" % table).fetchall()]
+    except Exception:
+        return []
+
+
+def ensure_runtime_migrations(conn):
+    cols = table_columns(conn, 'sent_log')
+    if cols:
+        if 'expire_date' not in cols:
+            conn.execute("ALTER TABLE sent_log ADD COLUMN expire_date text not null default ''")
+        if 'sent_at' not in cols:
+            conn.execute("ALTER TABLE sent_log ADD COLUMN sent_at integer not null default 0")
+        if 'status' not in cols:
+            conn.execute("ALTER TABLE sent_log ADD COLUMN status text not null default 'success'")
+        if 'message' not in cols:
+            conn.execute("ALTER TABLE sent_log ADD COLUMN message text not null default ''")
+    conn.execute("""create table if not exists reminder_runs(
+        id integer primary key autoincrement,
+        scope text not null default 'all',
+        api_key text not null default '',
+        checked_at integer not null,
+        stats_json text not null default '{}'
+    )""")
+    conn.commit()
+
 def db():
     conn = sqlite3.connect(DB)
     conn.row_factory = sqlite3.Row
@@ -298,7 +330,7 @@ def fetch_key_counts(conn, api_key):
     return settings, records
 
 
-def purge_old_backups(conn, api_key, keep=30):
+def purge_old_backups(conn, api_key, keep=200):
     rows = conn.execute('SELECT id FROM sync_backups WHERE api_key=? ORDER BY created_at DESC, id DESC', (api_key,)).fetchall()
     if len(rows) <= keep:
         return
@@ -433,58 +465,113 @@ def reminder_text(r, left):
     return "⏰ simJ 到期提醒\n%s %s %s %s\n到期日期：%s\n剩余天数：%s 天" % (r.get('flag', ''), op, r.get('countryCode', ''), num, exp, left)
 
 
-def check_once(only_key=None):
+def already_sent(conn, api, rid, channel, day, expire_date):
+    return conn.execute('select 1 from sent_log where api_key=? and record_id=? and channel=? and day=? and (expire_date=? or expire_date=?)', (api, rid, channel, day, expire_date, '')).fetchone() is not None
+
+
+def write_sent_log(conn, api, rid, channel, day, expire_date, ok, message):
+    status = 'success' if ok else 'failed'
+    conn.execute('insert or ignore into sent_log(api_key,record_id,channel,day,expire_date,sent_at,status,message) values(?,?,?,?,?,?,?,?)',
+                 (api, rid, channel, day, expire_date, int(time.time()), status, str(message or '')[:500]))
+
+
+def check_once(only_key=None, force=False, source='manual'):
     conn = db()
+    ensure_runtime_migrations(conn)
     today = date.today().isoformat()
     if only_key:
         rows = conn.execute('SELECT api_key FROM users WHERE api_key=? AND enabled=1', (clean_key(only_key),)).fetchall()
     else:
         rows = conn.execute('SELECT api_key FROM users WHERE enabled=1').fetchall()
-    stats = {'users': len(rows), 'tg': 0, 'mail': 0, 'due': 0}
+    stats = {'users': len(rows), 'records': 0, 'due': 0, 'tg': 0, 'mail': 0, 'duplicate': 0, 'disabled': 0, 'configMissing': 0, 'failed': 0}
     for row in rows:
         api = row['api_key']
         settings = load_settings_dict(conn, api)
         records = load_records_list(conn, api)
+        stats['records'] += len(records)
+        if not bool(settings.get('cloudEnabled', False)):
+            stats['disabled'] += 1
+            continue
         remind = int(settings.get('remindDays') or settings.get('remind天') or 7)
         cloud_tg = bool(settings.get('cloudTelegramEnabled', True))
         cloud_mail = bool(settings.get('cloudEmailEnabled', True))
         for r in records:
             rid = str(r.get('id') or r.get('number') or '')
-            left = days_left(str(r.get('expireDate', '')))
+            expire_date = str(r.get('expireDate', '') or '')[:10]
+            left = days_left(expire_date)
             if left is None or left < 0 or left > remind:
                 continue
             stats['due'] += 1
             text = reminder_text(r, left)
             subject = 'simJ 到期提醒：' + mask_number(r.get('number', ''))
             if cloud_tg and settings.get('tgEnabled') and settings.get('botToken') and settings.get('chatId'):
-                if not conn.execute('select 1 from sent_log where api_key=? and record_id=? and channel=? and day=?', (api, rid, 'tg', today)).fetchone():
-                    try:
-                        send_tg(settings.get('botToken'), settings.get('chatId'), text)
-                        conn.execute('insert or ignore into sent_log values(?,?,?,?)', (api, rid, 'tg', today))
-                        commit_and_checkpoint(conn)
-                        stats['tg'] += 1
-                    except Exception as e:
-                        print('tg error', api, e, flush=True)
+                if already_sent(conn, api, rid, 'tg', today, expire_date):
+                    stats['duplicate'] += 1
+                else:
+                    ok, msg = send_tg(settings.get('botToken'), settings.get('chatId'), text)
+                    write_sent_log(conn, api, rid, 'tg', today, expire_date, ok, msg)
+                    commit_and_checkpoint(conn)
+                    if ok: stats['tg'] += 1
+                    else: stats['failed'] += 1
+            elif cloud_tg:
+                stats['configMissing'] += 1
             if cloud_mail and settings.get('smtpEnabled') and settings.get('smtpTo'):
-                if not conn.execute('select 1 from sent_log where api_key=? and record_id=? and channel=? and day=?', (api, rid, 'mail', today)).fetchone():
-                    try:
-                        send_mail(settings, subject, text)
-                        conn.execute('insert or ignore into sent_log values(?,?,?,?)', (api, rid, 'mail', today))
-                        commit_and_checkpoint(conn)
-                        stats['mail'] += 1
-                    except Exception as e:
-                        print('mail error', api, e, flush=True)
+                if already_sent(conn, api, rid, 'mail', today, expire_date):
+                    stats['duplicate'] += 1
+                else:
+                    ok, msg = send_mail(settings, subject, text)
+                    write_sent_log(conn, api, rid, 'mail', today, expire_date, ok, msg)
+                    commit_and_checkpoint(conn)
+                    if ok: stats['mail'] += 1
+                    else: stats['failed'] += 1
+            elif cloud_mail:
+                stats['configMissing'] += 1
+    conn.execute('insert into reminder_runs(scope,api_key,checked_at,stats_json) values(?,?,?,?)',
+                 ('key' if only_key else 'all', clean_key(only_key) if only_key else '', int(time.time()), json.dumps(stats, ensure_ascii=False)))
+    conn.execute('delete from reminder_runs where id not in (select id from reminder_runs order by checked_at desc, id desc limit 500)')
+    commit_and_checkpoint(conn)
     conn.close()
     return stats
 
 
+def reminder_status(api_key):
+    conn = db()
+    ensure_runtime_migrations(conn)
+    settings = load_settings_dict(conn, api_key)
+    records = load_records_list(conn, api_key)
+    remind = int(settings.get('remindDays') or settings.get('remind天') or 7)
+    due = 0
+    for r in records:
+        left = days_left(str(r.get('expireDate',''))[:10])
+        if left is not None and 0 <= left <= remind:
+            due += 1
+    run = conn.execute('select checked_at, stats_json from reminder_runs where (api_key=? or scope=?) order by checked_at desc, id desc limit 1', (api_key, 'all')).fetchone()
+    sent_rows = conn.execute('select record_id, channel, day, expire_date, sent_at, status from sent_log where api_key=? order by sent_at desc limit 10', (api_key,)).fetchall()
+    conn.close()
+    now = int(time.time())
+    from datetime import datetime, timedelta
+    dt = datetime.now().replace(hour=DEFAULT_CHECK_HOUR, minute=DEFAULT_CHECK_MINUTE, second=0, microsecond=0)
+    if dt.timestamp() <= now:
+        dt = dt + timedelta(days=1)
+    last_stats = {}
+    if run:
+        try: last_stats = json.loads(run['stats_json'] or '{}')
+        except Exception: last_stats = {}
+    return {'cloudEnabled': bool(settings.get('cloudEnabled', False)), 'records': len(records), 'dueNow': due, 'remindDays': remind, 'lastCheckAt': int(run['checked_at']) if run else 0, 'nextCheckAt': int(dt.timestamp()), 'lastStats': last_stats, 'lastSent': [dict(r) for r in sent_rows]}
+
+
 def loop():
+    global _last_daily_check_day
     while True:
         try:
-            print('check', check_once(), flush=True)
+            now = time.localtime()
+            today = date.today().isoformat()
+            if now.tm_hour == DEFAULT_CHECK_HOUR and now.tm_min == DEFAULT_CHECK_MINUTE and _last_daily_check_day != today:
+                print('daily-check', check_once(None, source='daily'), flush=True)
+                _last_daily_check_day = today
         except Exception as e:
-            print('check error', e, flush=True)
-        time.sleep(1800)
+            print('daily check error', e, flush=True)
+        time.sleep(30)
 
 
 class H(BaseHTTPRequestHandler):
@@ -553,6 +640,13 @@ class H(BaseHTTPRequestHandler):
             has_settings = bool(conn.execute('SELECT 1 FROM user_settings WHERE api_key=?', (api_key,)).fetchone())
             conn.close()
             return self._json(200, {'ok': True, 'records': count_records, 'hasSettings': has_settings, 'updatedAt': row['updated_at'], 'apiKeyTail': api_key[-6:]})
+        if self.path.startswith('/api/reminder-status'):
+            api_key = self._auth_key()
+            if not api_key:
+                return self._json(401, {'ok': False, 'error': 'bad api key'})
+            st = reminder_status(api_key)
+            st['ok'] = True
+            return self._json(200, st)
         if self.path.startswith('/api/key-info'):
             api_key = self._auth_key()
             if not api_key:
@@ -635,7 +729,6 @@ class H(BaseHTTPRequestHandler):
                 if current_records or (current_payload.get('settings') or {}):
                     conn.execute('INSERT INTO sync_backups(api_key, payload, reason, records_count, created_at) VALUES(?,?,?,?,?)',
                                  (api_key, json.dumps(current_payload, ensure_ascii=False), 'replace', len(current_records), now))
-                    purge_old_backups(conn, api_key)
                 replace_records(conn, api_key, records_in)
                 upsert_settings_from_payload(conn, api_key, settings_in)
             else:
@@ -699,19 +792,9 @@ class H(BaseHTTPRequestHandler):
             ok, msg = send_mail(s, 'simJ 云端邮件测试', '✅ simJ 云端邮件测试成功。\nKey: ****' + api_key[-6:])
             return self._json(200, {'ok': ok, 'message': msg})
         if self.path.startswith('/api/check-now'):
-            stats = check_once(api_key)
-            conn = db()
-            settings, records = fetch_key_counts(conn, api_key)
-            conn.close()
-            enriched = {
-                'users': 1,
-                'settings': 1 if settings else 0,
-                'records': len(records),
-                'due': stats.get('due', 0),
-                'tg': stats.get('tg', 0),
-                'mail': stats.get('mail', 0),
-            }
-            return self._json(200, {'ok': True, 'message': '已触发当前 Key 检查', 'stats': enriched})
+            stats = check_once(api_key, force=True, source='manual')
+            message = '已检查：%s 个号码，%s 个进入提醒区间，邮件发送 %s 条，TG 发送 %s 条，跳过重复 %s 条' % (stats.get('records',0), stats.get('due',0), stats.get('mail',0), stats.get('tg',0), stats.get('duplicate',0))
+            return self._json(200, {'ok': True, 'message': message, 'stats': stats})
         return self._json(404, {'ok': False, 'error': 'not found'})
 
     def log_message(self, fmt, *args):
@@ -723,6 +806,7 @@ if __name__ == '__main__':
     _init_conn = db()
     ensure_tables(_init_conn)
     migrate_legacy(_init_conn)
+    ensure_runtime_migrations(_init_conn)
     _init_conn.close()
     threading.Thread(target=loop, daemon=True).start()
     print(f'simJ reminder v3 structured listening on {HOST}:{PORT}', flush=True)
