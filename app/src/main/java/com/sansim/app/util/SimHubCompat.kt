@@ -96,6 +96,7 @@ object SimHubCompat {
         val currencyCode = obj.optString("currencyCode", "")
         val cardBackgroundAssetName = obj.optString("cardBackgroundAssetName", "")
         val cardColorHex = obj.optString("cardColorHex", "")
+        val cardType = obj.optString("cardType", obj.optString("billingType", "prepaid"))
 
         // Build note from plan only (tags/transactionNotes/customPrompt now have dedicated fields)
         val noteParts = mutableListOf<String>()
@@ -127,6 +128,7 @@ object SimHubCompat {
             currencyCode = currencyCode,
             cardBackgroundAssetName = cardBackgroundAssetName,
             cardColorHex = cardColorHex,
+            cardType = cardType.ifBlank { "prepaid" },
         )
     }
 
@@ -188,6 +190,7 @@ object SimHubCompat {
         if (r.cyclePaymentMinorUnits > 0) obj.put("cyclePaymentMinorUnits", r.cyclePaymentMinorUnits)
         if (r.currencyCode.isNotBlank()) obj.put("currencyCode", r.currencyCode)
         if (r.cardColorHex.isNotBlank()) obj.put("cardColorHex", r.cardColorHex)
+        if (r.cardType.isNotBlank()) obj.put("cardType", r.cardType)
 
         // cardBackgroundAssetName: use stored value or generate from ISO
         val bgName = r.cardBackgroundAssetName.ifBlank {

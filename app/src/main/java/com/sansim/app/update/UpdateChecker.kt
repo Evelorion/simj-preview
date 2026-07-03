@@ -15,7 +15,7 @@ data class UpdateInfo(
 
 object UpdateChecker {
     private const val REPO_OWNER = "yanglh1"
-    private const val REPO_NAME = "simj-preview"
+    private const val REPO_NAME = "SimJ"
 
     suspend fun check(currentVersion: String): UpdateInfo? = withContext(Dispatchers.IO) {
         runCatching {

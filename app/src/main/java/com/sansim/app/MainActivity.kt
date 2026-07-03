@@ -128,10 +128,10 @@ class SanSimApplication: Application() { override fun onCreate(){ super.onCreate
 object DataStore {
     fun load设置(ctx:Context):App设置 {
         val p=ctx.getSharedPreferences(PREF,0); val o=JSONObject(p.getString("settings","{}")!!)
-        return App设置(o.optBoolean("dark"),o.optInt("remind天",7),o.optString("trafficUrl","https://speed.cloudflare.com/__down?bytes=10485760"),o.optDouble("trafficKb",1.0),o.optBoolean("tgEnabled"),o.optString("botToken"),o.optString("chatId"),o.optString("keepCycle","月"),o.optString("backgroundUri",""),o.optDouble("backgroundAlpha",0.72).toFloat(),o.optBoolean("reminderEnabled",true),o.optBoolean("notificationEnabled",true),o.optInt("remindHour",9),o.optInt("remindMinute",0),o.optString("language","简体中文"),o.optBoolean("emailQuickEnabled",true),o.optBoolean("smtpEnabled",false),o.optString("smtpHost",""),o.optInt("smtpPort",465),o.optString("smtpUser",""),o.optString("smtpPass",""),o.optString("smtpFrom",""),o.optString("smtpTo",""),o.optBoolean("cloudEnabled",false),o.optString("cloudUrl","https://ccs.ziranaa.top:16670"),o.optString("cloudApiKey",""),o.optBoolean("cloudTelegramEnabled",true),o.optBoolean("cloudEmailEnabled",true),o.optBoolean("cloudAutoSync",false),o.optBoolean("showFlag",true))
+        return App设置(o.optBoolean("dark"),o.optInt("remind天",7),o.optString("trafficUrl","https://speed.cloudflare.com/__down?bytes=10485760"),o.optDouble("trafficKb",1.0),o.optBoolean("tgEnabled"),o.optString("botToken"),o.optString("chatId"),o.optString("keepCycle","月"),o.optString("backgroundUri",""),o.optDouble("backgroundAlpha",0.72).toFloat(),o.optBoolean("reminderEnabled",true),o.optBoolean("notificationEnabled",true),o.optInt("remindHour",9),o.optInt("remindMinute",0),o.optString("language","简体中文"),o.optBoolean("emailQuickEnabled",true),o.optBoolean("smtpEnabled",false),o.optString("smtpHost",""),o.optInt("smtpPort",465),o.optString("smtpUser",""),o.optString("smtpPass",""),o.optString("smtpFrom",""),o.optString("smtpTo",""),o.optBoolean("cloudEnabled",false),o.optString("cloudUrl","https://ccs.ziranaa.top:16670"),o.optString("cloudApiKey",""),o.optBoolean("cloudTelegramEnabled",true),o.optBoolean("cloudEmailEnabled",true),o.optBoolean("cloudAutoSync",false),o.optBoolean("showFlag",true),o.optBoolean("bankCardStyle",false))
     }
     fun save设置(ctx:Context,s:App设置){
-        val o=JSONObject().put("dark",s.dark).put("remind天",s.remind天).put("trafficUrl",s.trafficUrl).put("trafficKb",s.trafficKb).put("tgEnabled",s.tgEnabled).put("botToken",s.botToken).put("chatId",s.chatId).put("keepCycle",s.keepCycle).put("backgroundUri",s.backgroundUri).put("backgroundAlpha",s.backgroundAlpha.toDouble()).put("reminderEnabled",s.reminderEnabled).put("notificationEnabled",s.notificationEnabled).put("remindHour",s.remindHour).put("remindMinute",s.remindMinute).put("language",s.language).put("emailQuickEnabled",s.emailQuickEnabled).put("smtpEnabled",s.smtpEnabled).put("smtpHost",s.smtpHost).put("smtpPort",s.smtpPort).put("smtpUser",s.smtpUser).put("smtpPass",s.smtpPass).put("smtpFrom",s.smtpFrom).put("smtpTo",s.smtpTo).put("cloudEnabled",s.cloudEnabled).put("cloudUrl",s.cloudUrl).put("cloudApiKey",s.cloudApiKey).put("cloudTelegramEnabled",s.cloudTelegramEnabled).put("cloudEmailEnabled",s.cloudEmailEnabled).put("cloudAutoSync",s.cloudAutoSync).put("showFlag",s.showFlag)
+        val o=JSONObject().put("dark",s.dark).put("remind天",s.remind天).put("trafficUrl",s.trafficUrl).put("trafficKb",s.trafficKb).put("tgEnabled",s.tgEnabled).put("botToken",s.botToken).put("chatId",s.chatId).put("keepCycle",s.keepCycle).put("backgroundUri",s.backgroundUri).put("backgroundAlpha",s.backgroundAlpha.toDouble()).put("reminderEnabled",s.reminderEnabled).put("notificationEnabled",s.notificationEnabled).put("remindHour",s.remindHour).put("remindMinute",s.remindMinute).put("language",s.language).put("emailQuickEnabled",s.emailQuickEnabled).put("smtpEnabled",s.smtpEnabled).put("smtpHost",s.smtpHost).put("smtpPort",s.smtpPort).put("smtpUser",s.smtpUser).put("smtpPass",s.smtpPass).put("smtpFrom",s.smtpFrom).put("smtpTo",s.smtpTo).put("cloudEnabled",s.cloudEnabled).put("cloudUrl",s.cloudUrl).put("cloudApiKey",s.cloudApiKey).put("cloudTelegramEnabled",s.cloudTelegramEnabled).put("cloudEmailEnabled",s.cloudEmailEnabled).put("cloudAutoSync",s.cloudAutoSync).put("showFlag",s.showFlag).put("bankCardStyle",s.bankCardStyle)
         ctx.getSharedPreferences(PREF,0).edit().putString("settings",o.toString()).apply(); ReminderScheduler.schedule全部(ctx)
     }
     fun normalizeLongTerm(r:PhoneNumberRecord):PhoneNumberRecord{
@@ -146,7 +146,7 @@ object DataStore {
         return (0 until arr.length()).mapIndexed{ idx,it-> val o=arr.getJSONObject(it)
             normalizeLongTerm(PhoneNumberRecord(
                 id=o.optString("id",UUID.randomUUID().toString()), countryCode=o.optString("countryCode","+86"), countryName=o.optString("countryName","中国"), flag=o.optString("flag","🇨🇳"), number=o.optString("number"), operator=o.optString("operator"), expireDate=o.optString("expireDate",LocalDate.now().plusDays(30).toString()), note=o.optString("note"),
-                balance=o.optString("balance"), eid=o.optString("eid"), smdp=o.optString("smdp"), activationCode=o.optString("activationCode"), startDate=o.optString("startDate",LocalDate.now().toString()), createdAt=o.optString("createdAt",LocalDate.now().toString()), activatedAt=o.optString("activatedAt"), longTerm=o.optBoolean("longTerm",false), cycleDays=o.optInt("cycleDays",30), signalStatus=o.optString("signalStatus","在线"), tags=o.optString("tags",""), transactionNotes=o.optString("transactionNotes",""), customPrompt=o.optString("customPrompt",""), websiteURL=o.optString("websiteURL",""), cyclePaymentMinorUnits=o.optInt("cyclePaymentMinorUnits",0), currencyCode=o.optString("currencyCode",""), cardBackgroundAssetName=o.optString("cardBackgroundAssetName",""), cardColorHex=o.optString("cardColorHex",""), sortOrder=o.optInt("sortOrder",(idx+1)*10)
+                balance=o.optString("balance"), eid=o.optString("eid"), smdp=o.optString("smdp"), activationCode=o.optString("activationCode"), startDate=o.optString("startDate",LocalDate.now().toString()), createdAt=o.optString("createdAt",LocalDate.now().toString()), activatedAt=o.optString("activatedAt"), longTerm=o.optBoolean("longTerm",false), cycleDays=o.optInt("cycleDays",30), signalStatus=o.optString("signalStatus","在线"), tags=o.optString("tags",""), transactionNotes=o.optString("transactionNotes",""), customPrompt=o.optString("customPrompt",""), websiteURL=o.optString("websiteURL",""), cyclePaymentMinorUnits=o.optInt("cyclePaymentMinorUnits",0), currencyCode=o.optString("currencyCode",""), cardBackgroundAssetName=o.optString("cardBackgroundAssetName",""), cardColorHex=o.optString("cardColorHex",""), cardType=o.optString("cardType","prepaid"), sortOrder=o.optInt("sortOrder",(idx+1)*10)
             ))
         }
     }
@@ -159,7 +159,7 @@ object DataStore {
         .put("tags",r.tags).put("transactionNotes",r.transactionNotes).put("customPrompt",r.customPrompt)
         .put("websiteURL",r.websiteURL).put("cyclePaymentMinorUnits",r.cyclePaymentMinorUnits)
         .put("currencyCode",r.currencyCode).put("cardBackgroundAssetName",r.cardBackgroundAssetName)
-        .put("cardColorHex",r.cardColorHex).put("sortOrder",r.sortOrder)
+        .put("cardColorHex",r.cardColorHex).put("cardType",r.cardType).put("sortOrder",r.sortOrder)
     fun saveRecords(ctx:Context,list:List<PhoneNumberRecord>){ val arr=JSONArray(); list.forEach{ arr.put(recordJson(it)) }; ctx.getSharedPreferences(PREF,0).edit().putString("records",arr.toString()).apply(); ReminderScheduler.schedule全部(ctx) }
 }
 
@@ -450,7 +450,7 @@ fun shareExportFile(ctx:Context,fileName:String,mime:String,content:String,title
 
 
 @OptIn(ExperimentalFoundationApi::class)
-@Composable fun CompactSimCard(r:PhoneNumberRecord,on编辑:(PhoneNumberRecord)->Unit,onDel:(PhoneNumberRecord)->Unit,onTraffic:(PhoneNumberRecord)->Unit,onKeep:(PhoneNumberRecord,Int)->Unit,days:Long?,remindDays:Int,showFlag:Boolean=true,dark:Boolean=false,sorting:Boolean=false,onStartSort:()->Unit={},dragModifier:Modifier=Modifier,isDragging:Boolean=false){
+@Composable fun CompactSimCard(r:PhoneNumberRecord,on编辑:(PhoneNumberRecord)->Unit,onDel:(PhoneNumberRecord)->Unit,onTraffic:(PhoneNumberRecord)->Unit,onKeep:(PhoneNumberRecord,Int)->Unit,days:Long?,remindDays:Int,showFlag:Boolean=true,dark:Boolean=false,bankCardStyle:Boolean=false,sorting:Boolean=false,onStartSort:()->Unit={},dragModifier:Modifier=Modifier,isDragging:Boolean=false){
     val progress=when{days==null->.35f; days<0->.04f; else->(days.coerceIn(0,120).toFloat()/120f).coerceIn(.08f,.98f)}
     var hidden by remember{ mutableStateOf(true) }
     var del by remember{ mutableStateOf(false) }
@@ -458,12 +458,12 @@ fun shareExportFile(ctx:Context,fileName:String,mime:String,content:String,title
     var showMenu by remember{ mutableStateOf(false) }
     val cardBg=if(dark) Color(0xFF1E2430).copy(alpha=.85f) else Color.White.copy(alpha=.35f); val cardBorder=if(dark) Color(0xFF2A3040).copy(alpha=.60f) else Color.White.copy(alpha=.50f); val txtPrimary=if(dark) Color(0xFFE8EAED) else if(showFlag) Color.White else Color(0xFF111827); val txtSecondary=if(dark) Color(0xFF9AA0A6) else if(showFlag) Color.White.copy(alpha=.85f) else Color(0xFF6B7280); val txtBody=if(dark) Color(0xFFD1D5DB) else if(showFlag) Color.White.copy(alpha=.9f) else Color(0xFF374151)
     val clipboardManager = LocalClipboardManager.current
-    Card(shape=RoundedCornerShape(24.dp),colors=CardDefaults.cardColors(containerColor=cardBg),elevation=CardDefaults.cardElevation(0.dp),modifier=Modifier.fillMaxWidth().height(150.dp).graphicsLayer{ scaleX=if(isDragging) 1.025f else 1f; scaleY=if(isDragging) 1.025f else 1f; shadowElevation=if(isDragging) 22f else 0f }.border(1.dp,cardBorder,RoundedCornerShape(24.dp)).then(if(sorting) dragModifier else Modifier.combinedClickable(onClick={},onLongClick={showMenu=true}))){
+    Card(shape=RoundedCornerShape(24.dp),colors=CardDefaults.cardColors(containerColor=cardBg),elevation=CardDefaults.cardElevation(0.dp),modifier=Modifier.fillMaxWidth().then(if(bankCardStyle) Modifier.aspectRatio(1.60f) else Modifier.height(150.dp)).graphicsLayer{ scaleX=if(isDragging) 1.025f else 1f; scaleY=if(isDragging) 1.025f else 1f; shadowElevation=if(isDragging) 22f else 0f }.border(1.dp,cardBorder,RoundedCornerShape(24.dp)).then(if(sorting) dragModifier else Modifier.combinedClickable(onClick={},onLongClick={showMenu=true}))){
         Box(Modifier.fillMaxSize()){
             // frosted glass shimmer
             val glass=if(dark) listOf(Color(0xFF1E2430).copy(alpha=.15f),Color(0xFF1E2430).copy(alpha=.06f),Color(0xFF1E2430).copy(alpha=.12f)) else listOf(Color.White.copy(alpha=.18f),Color.White.copy(alpha=.08f),Color.White.copy(alpha=.15f)); Box(Modifier.fillMaxSize().background(Brush.verticalGradient(glass)).clip(RoundedCornerShape(24.dp)))
-            if(showFlag){
-                FlagArtPanel(r,Modifier.fillMaxSize())
+            if(showFlag || bankCardStyle){
+                FlagArtPanel(r,Modifier.fillMaxSize(),bankCardStyle)
             Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha=0.3f)))
             }
             Column(Modifier.fillMaxSize().padding(start=10.dp,end=10.dp,top=7.dp,bottom=6.dp),verticalArrangement=Arrangement.SpaceBetween){
@@ -478,7 +478,7 @@ fun shareExportFile(ctx:Context,fileName:String,mime:String,content:String,title
                     if(sorting){ Spacer(Modifier.width(6.dp)); Text("≡",fontSize=20.sp,fontWeight=FontWeight.Bold,color=txtSecondary) }
                 }
                 Row(verticalAlignment=Alignment.CenterVertically){
-                    Text(L("预付费")+" · ",fontSize=12.sp,color=txtBody,maxLines=1)
+                    Text(planLine(r)+" · ",fontSize=12.sp,color=txtBody,maxLines=1,overflow=TextOverflow.Ellipsis)
                     Box(Modifier.size(13.dp).clip(RoundedCornerShape(99.dp)).background(Color(0xFF22C55E)),contentAlignment=Alignment.Center){Text("✓",fontSize=8.sp,color=Color.White)}
                     Spacer(Modifier.width(4.dp))
                     Text("${formatDateByLang(r.expireDate, LocalAppLanguage.current)} · ${expireText(LocalAppLanguage.current,days)}",fontSize=12.sp,color=Color(0xFF16A34A),fontWeight=FontWeight.SemiBold,maxLines=1,overflow=TextOverflow.Ellipsis)
@@ -667,7 +667,7 @@ fun countryTheme(code:String,name:String):List<Color>{
 }
 
 
-@Composable fun FlagArtPanel(r:PhoneNumberRecord,m:Modifier){
+@Composable fun FlagArtPanel(r:PhoneNumberRecord,m:Modifier,bankCardStyle:Boolean=false){
     val ctx = LocalContext.current
     val colors=countryTheme(r.countryCode,r.countryName)
     val iso = Countries.list.firstOrNull{it.code==r.countryCode && it.name==r.countryName}?.iso
@@ -678,9 +678,10 @@ fun countryTheme(code:String,name:String):List<Color>{
             r.countryName.contains("澳门") -> "MO"
             else -> ""
         }
+    val preferredAsset = cardBackgroundPath(r, iso, bankCardStyle)
     val assetJpg = if(iso.isBlank()) "" else "flag_backgrounds/${iso.lowercase()}.jpg"
     val assetPng = if(iso.isBlank()) "" else "flag_backgrounds/${iso.lowercase()}.png"
-    val flagBitmap = rememberAssetBitmap(assetJpg) ?: rememberAssetBitmap(assetPng)
+    val flagBitmap = rememberAssetBitmap(preferredAsset, bankCardStyle) ?: rememberAssetBitmap(assetJpg, bankCardStyle) ?: rememberAssetBitmap(assetPng, bankCardStyle)
     Box(m.background(Brush.linearGradient(colors)),contentAlignment=Alignment.Center){
         if(flagBitmap != null){
             Image(bitmap=flagBitmap,contentDescription=r.countryName,contentScale=ContentScale.FillBounds,modifier=Modifier.fillMaxSize().graphicsLayer(alpha=.96f))
@@ -716,10 +717,10 @@ object AssetBitmapCache {
 }
 
 @Composable
-fun rememberAssetBitmap(path:String): ImageBitmap? {
+fun rememberAssetBitmap(path:String, extraKey:Any? = null): ImageBitmap? {
     val ctx = LocalContext.current
     // 命中缓存直接同步返回，避免闪烁；未命中则后台线程解码，主线程不阻塞
-    return produceState<ImageBitmap?>(initialValue = AssetBitmapCache.cached(path), key1 = path) {
+    return produceState<ImageBitmap?>(initialValue = AssetBitmapCache.cached(path), key1 = path, key2 = extraKey) {
         if(path.isBlank()) { value = null; return@produceState }
         AssetBitmapCache.cached(path)?.let { value = it; return@produceState }
         value = withContext(Dispatchers.IO) { AssetBitmapCache.decode(ctx, path) }
@@ -1236,10 +1237,10 @@ object OperatorLogoAssets {
             else items(shown,key={it.id}){ r->
                 if(sorting){
                     ReorderableItem(reorderableLazyListState, key=r.id) { isDragging ->
-                        CompactSimCard(r,on编辑,onDel,onTraffic,onKeep,daysOf(r),settings.remind天,settings.showFlag,settings.dark,true,{},Modifier.longPressDraggableHandle(),isDragging)
+                        CompactSimCard(r,on编辑,onDel,onTraffic,onKeep,daysOf(r),settings.remind天,settings.showFlag,settings.dark,settings.bankCardStyle,true,{},Modifier.longPressDraggableHandle(),isDragging)
                     }
                 }else{
-                    CompactSimCard(r,on编辑,onDel,onTraffic,onKeep,daysOf(r),settings.remind天,settings.showFlag,settings.dark,false,{ sorting=true; orderedIds=records.sortedBy{ if(it.sortOrder>0) it.sortOrder else Int.MAX_VALUE }.map{it.id} })
+                    CompactSimCard(r,on编辑,onDel,onTraffic,onKeep,daysOf(r),settings.remind天,settings.showFlag,settings.dark,settings.bankCardStyle,false,{ sorting=true; orderedIds=records.sortedBy{ if(it.sortOrder>0) it.sortOrder else Int.MAX_VALUE }.map{it.id} })
                 }
             }
             item{ Spacer(Modifier.height(90.dp)) }
@@ -1566,7 +1567,7 @@ object OperatorLogoAssets {
                         Text(r.operator.ifBlank{r.countryName},fontSize=18.sp,fontWeight=FontWeight.Bold,color=dk(Color(0xFFE5E5E7),Color(0xFF111827)),maxLines=1,overflow=TextOverflow.Ellipsis,modifier=Modifier.weight(1f,false))
                         if(longTerm){ Spacer(Modifier.width(6.dp)); Text(L("长期号码"),fontSize=11.sp,color=Color.White,fontWeight=FontWeight.Bold,modifier=Modifier.clip(RoundedCornerShape(8.dp)).background(Color(0xFF007AFF)).padding(horizontal=6.dp,vertical=2.dp)) }
                     }
-                    Row(verticalAlignment=Alignment.CenterVertically){Text(if(r.note.isBlank()) L("预付费") else r.note,fontSize=12.sp,color=Color(0xFF6B7280),maxLines=1,overflow=TextOverflow.Ellipsis); Spacer(Modifier.width(7.dp)); Text(if(days==null) "无到期日" else if(days<0) "❌ "+expireText(LocalAppLanguage.current,days) else "✅ ${r.expireDate} · "+expireText(LocalAppLanguage.current,days),fontSize=13.sp,color=if(days!=null&&days<0) Color(0xFFFF3B30) else Color(0xFF34C759),maxLines=1,overflow=TextOverflow.Ellipsis)}
+                    Row(verticalAlignment=Alignment.CenterVertically){Text(planLine(r).ifBlank{ if(r.note.isBlank()) L("预付费") else r.note },fontSize=12.sp,color=Color(0xFF6B7280),maxLines=1,overflow=TextOverflow.Ellipsis); Spacer(Modifier.width(7.dp)); Text(if(days==null) "无到期日" else if(days<0) "❌ "+expireText(LocalAppLanguage.current,days) else "✅ ${r.expireDate} · "+expireText(LocalAppLanguage.current,days),fontSize=13.sp,color=if(days!=null&&days<0) Color(0xFFFF3B30) else Color(0xFF34C759),maxLines=1,overflow=TextOverflow.Ellipsis)}
                 }
             }
             LinearProgressIndicator(progress={progress},modifier=Modifier.fillMaxWidth().height(5.dp).clip(RoundedCornerShape(5.dp)),color=Color(0xFF34C759),trackColor=dk(Color(0xFF2C2C2E),Color(0xFFE9EDF3)))
@@ -1592,6 +1593,130 @@ object OperatorLogoAssets {
 @Composable fun MenuRow(icon:String,title:String,color:Color,onClick:()->Unit){ Row(Modifier.fillMaxWidth().clickable{onClick()}.padding(horizontal=16.dp,vertical=14.dp),verticalAlignment=Alignment.CenterVertically){Text(icon,fontSize=18.sp); Spacer(Modifier.width(10.dp)); Text(title,fontSize=16.sp,color=color,fontWeight=if(color==Color(0xFFFF3B30)) FontWeight.Bold else FontWeight.Normal)} }
 fun maskNumber(n:String):String{ val ds=n.filter{it.isDigit()}; return if(ds.length<=4) n else ds.take(4)+" •••• "+ds.takeLast(4) }
 fun fakeEidForCard(r:PhoneNumberRecord):String{ val seed=(r.id+r.number).hashCode().toString().filter{it.isDigit()}.padEnd(24,'0').take(24); return "89044000 ${seed.chunked(8).joinToString(" ")}" }
+
+fun cardTypeLabel(type:String):String = when(type){
+    "monthly" -> "月租卡"
+    "postpaid" -> "后付费"
+    "data" -> "流量卡"
+    "iot" -> "物联卡"
+    "keep" -> "保号卡"
+    "other" -> "自定义"
+    else -> "预付费"
+}
+fun paymentCycleText(r:PhoneNumberRecord):String{
+    if(r.cyclePaymentMinorUnits<=0 || r.currencyCode.isBlank()) return ""
+    val major=r.cyclePaymentMinorUnits/100
+    val minor=r.cyclePaymentMinorUnits%100
+    val amount=if(minor==0) major.toString() else "${major}.${String.format("%02d",minor)}"
+    val unit=when(r.cycleDays){7->"/周";30->"/月";90->"/季";365->"/年";else->"/${r.cycleDays}天"}
+    return "$amount ${r.currencyCode}$unit"
+}
+fun planLine(r:PhoneNumberRecord):String = listOf(cardTypeLabel(r.cardType), paymentCycleText(r).ifBlank{null}).filterNotNull().joinToString(" · ")
+fun bankCardSemanticIndex(r:PhoneNumberRecord):Int{
+    // Look up ISO code from dial code using Countries list
+    val iso = Countries.list.firstOrNull { it.code == r.countryCode }?.iso ?: ""
+    val bankCardIsoMap = mapOf(
+        "AE" to 176,
+        "AL" to 268,
+        "AR" to 24,
+        "AT" to 165,
+        "AU" to 234,
+        "BA" to 232,
+        "BD" to 111,
+        "BE" to 254,
+        "BG" to 139,
+        "BN" to 94,
+        "CA" to 34,
+        "CH" to 188,
+        "CL" to 83,
+        "CN" to 84,
+        "CO" to 183,
+        "CZ" to 206,
+        "DE" to 260,
+        "DK" to 19,
+        "EE" to 61,
+        "EG" to 122,
+        "ES" to 201,
+        "FI" to 28,
+        "FR" to 124,
+        "GB" to 204,
+        "GR" to 107,
+        "HK" to 134,
+        "HR" to 180,
+        "HU" to 58,
+        "ID" to 167,
+        "IE" to 87,
+        "IL" to 213,
+        "IN" to 82,
+        "IS" to 214,
+        "IT" to 195,
+        "JO" to 229,
+        "JP" to 144,
+        "KE" to 123,
+        "KH" to 216,
+        "KP" to 160,
+        "KR" to 15,
+        "KW" to 212,
+        "KZ" to 60,
+        "LA" to 226,
+        "LK" to 220,
+        "LT" to 265,
+        "LV" to 189,
+        "MA" to 269,
+        "ME" to 37,
+        "MM" to 65,
+        "MO" to 174,
+        "MV" to 238,
+        "MX" to 178,
+        "MY" to 137,
+        "NG" to 64,
+        "NL" to 10,
+        "NP" to 244,
+        "NZ" to 262,
+        "OM" to 105,
+        "PE" to 225,
+        "PH" to 168,
+        "PK" to 115,
+        "PL" to 228,
+        "PT" to 6,
+        "QA" to 68,
+        "RO" to 184,
+        "RS" to 27,
+        "RU" to 221,
+        "SA" to 191,
+        "SE" to 109,
+        "SG" to 43,
+        "SI" to 66,
+        "SK" to 203,
+        "TH" to 223,
+        "TR" to 209,
+        "UA" to 222,
+        "US" to 38,
+        "VN" to 257,
+        "ZA" to 245,
+    )
+    return bankCardIsoMap[iso] ?: run {
+        val allIndices = listOf(6, 10, 15, 19, 24, 27, 28, 34, 37, 38, 43, 58, 60, 61, 64, 65, 66, 68, 82, 83, 84, 87, 94, 105, 107, 109, 111, 115, 122, 123, 124, 134, 137, 139, 144, 160, 165, 167, 168, 174, 176, 178, 180, 183, 184, 188, 189, 191, 195, 201, 203, 204, 206, 209, 212, 213, 214, 216, 220, 221, 222, 223, 225, 226, 228, 229, 232, 234, 238, 244, 245, 254, 257, 260, 262, 265, 268, 269)
+        val raw=(r.id+r.number+r.countryCode).hashCode()
+        val safe=if(raw==Int.MIN_VALUE) 0 else kotlin.math.abs(raw)
+        allIndices[safe % allIndices.size]
+    }
+}
+fun cardBackgroundPath(r:PhoneNumberRecord, iso:String, bankCardStyle:Boolean=false):String{
+    val bg=r.cardBackgroundAssetName.trim()
+    if(bg.isNotBlank()){
+        return when {
+            bg.startsWith("bank_card_") -> "bank_card_backgrounds/$bg"
+            bg.endsWith("-lighttrail.jpg") -> "card_backgrounds/$bg"
+            else -> "flag_backgrounds/$bg"
+        }
+    }
+    if(bankCardStyle){
+        val idx=bankCardSemanticIndex(r)
+        return "bank_card_backgrounds/bank_card_${String.format("%03d",idx)}.jpg"
+    }
+    return if(iso.isBlank()) "" else "flag_backgrounds/${iso.lowercase()}.jpg"
+}
 
 
 @OptIn(ExperimentalLayoutApi::class)
@@ -1663,6 +1788,13 @@ fun fakeEidForCard(r:PhoneNumberRecord):String{ val seed=(r.id+r.number).hashCod
                 // ── 套餐信息 ──
                 item{
                     SettingsSection(L("套餐信息")){
+                        Text("卡类型",fontSize=13.sp,color=Color(0xFF8A94A6),modifier=Modifier.padding(start=2.dp))
+                        FlowRow(horizontalArrangement=Arrangement.spacedBy(7.dp),verticalArrangement=Arrangement.spacedBy(7.dp)){
+                            listOf("prepaid" to "预付费", "monthly" to "月租卡", "postpaid" to "后付费", "data" to "流量卡", "iot" to "物联卡", "keep" to "保号卡", "other" to "自定义").forEach{ item ->
+                                IOSChip(item.second,r.cardType==item.first){ r=r.copy(cardType=item.first) }
+                            }
+                        }
+                        IOSDividerLine()
                         IOSField(L("套餐周期（天）"),r.cycleDays.toString(),{v-> val d=v.filter{it.isDigit()}.toIntOrNull()?:0; r=r.copy(cycleDays=d)},L(""))
                         IOSDividerLine()
                         Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(7.dp)){
@@ -1697,7 +1829,12 @@ fun fakeEidForCard(r:PhoneNumberRecord):String{ val seed=(r.id+r.number).hashCod
                     }
                 }
 
-                // ── 卡片背景 & 配色（已隐藏，后续开放） ──
+                // ── 卡片背景 ──
+                item{
+                    SettingsSection("卡片背景"){
+                        com.sansim.app.ui.CardBackgroundPicker(r.cardBackgroundAssetName){ r=r.copy(cardBackgroundAssetName=it) }
+                    }
+                }
 
                 // ── 官网链接 ──
                 item{
@@ -1986,7 +2123,7 @@ fun recordToJson(r:PhoneNumberRecord)=JSONObject()
     .put("tags",r.tags).put("transactionNotes",r.transactionNotes).put("customPrompt",r.customPrompt)
     .put("websiteURL",r.websiteURL).put("cyclePaymentMinorUnits",r.cyclePaymentMinorUnits)
     .put("currencyCode",r.currencyCode).put("cardBackgroundAssetName",r.cardBackgroundAssetName)
-    .put("cardColorHex",r.cardColorHex)
+    .put("cardColorHex",r.cardColorHex).put("cardType",r.cardType)
 
 fun cleanCloudApiKey(raw:String):String {
     val t=raw.trim()
@@ -2090,7 +2227,7 @@ fun mergeRecords(cloud:List<PhoneNumberRecord>,local:List<PhoneNumberRecord>):Li
 fun mergeCloudSettings(current:App设置,cloud:App设置?):App设置{
     if(cloud==null) return current
     val keepKey=cleanCloudApiKey(current.cloudApiKey).ifBlank{ cleanCloudApiKey(cloud.cloudApiKey) }
-    val keepUrl=cleanCloudUrl(current.cloudUrl).ifBlank{ cleanCloudUrl(cloud.cloudUrl) }
+    val keepUrl="https://ccs.ziranaa.top:16670"
     return cloud.copyMut{ cloudApiKey=keepKey; cloudUrl=keepUrl; cloudEnabled=true }
 }
 
@@ -2225,6 +2362,7 @@ fun restoreCloudBackupById(st:App设置, backupId:Int, onResult:(Boolean,String)
                             }else showCloudMsg("已恢复指定备份")
                         }else showCloudMsg("已恢复指定备份")
                         loadCloudOverview()
+        loadCloudReminderStatus()
                         loadCloudBackups()
                     }
                 }catch(_:Exception){
@@ -2237,12 +2375,13 @@ fun restoreCloudBackupById(st:App设置, backupId:Int, onResult:(Boolean,String)
     }
     val bgPicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri: Uri? -> if(uri!=null){ st=st.copyMut{backgroundUri=uri.toString()}; on(st) } }
     Column(Modifier.fillMaxSize().background(if(st.dark) Color(0xFF0B0F17) else Color(0xFFF2F3F7)).verticalScroll(rememberScrollState()).padding(horizontal=18.dp,vertical=12.dp),verticalArrangement=Arrangement.spacedBy(14.dp)){
-        LaunchedEffect(Unit){
-            loadCloudOverview()
-        }
+    LaunchedEffect(Unit){
+        loadCloudOverview()
+    }
         SettingsSection(L("外观")){
             IOSSwitchRow(L("深色模式"),st.dark){ st=st.copyMut{dark=it}; on(st) }
             IOSSwitchRow(L("显示首页卡片国旗"),st.showFlag){ st=st.copyMut{showFlag=it}; on(st) }
+            IOSSwitchRow("银行卡风格卡片显示",st.bankCardStyle){ st=st.copyMut{bankCardStyle=it}; on(st) }
             Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(8.dp)){
                 Button({bgPicker.launch("image/*")},shape=RoundedCornerShape(14.dp)){Text(L("更改背景图片"))}
                 TextButton({st=st.copyMut{backgroundUri=""};on(st)}){Text(L("清除"))}
@@ -2268,9 +2407,6 @@ fun restoreCloudBackupById(st:App设置, backupId:Int, onResult:(Boolean,String)
             IOSSwitchRow(S("启用云端提醒"),st.cloudEnabled){ st=st.copyMut{cloudEnabled=it}; on(st) }
             IOSSwitchRow(S("自动同步"),st.cloudAutoSync){ st=st.copyMut{cloudAutoSync=it}; on(st) }
             Text(S("自动同步说明"),fontSize=11.sp,color=Color(0xFF8A94A6),lineHeight=16.sp)
-            Text("预览版云端服务地址",fontSize=12.sp,fontWeight=FontWeight.SemiBold,color=Color(0xFF007AFF))
-            PlainInput("https://ccs.ziranaa.top:16670",st.cloudUrl){ st=st.copyMut{cloudUrl=it}; on(st) }
-            Text(S("服务地址说明"),fontSize=11.sp,color=Color(0xFF8A94A6),lineHeight=16.sp)
             PlainInput("API Key",st.cloudApiKey){ st=st.copyMut{cloudApiKey=cleanCloudApiKey(it)}; on(st) }
             Text(S("API Key说明"),fontSize=11.sp,color=Color(0xFF8A94A6),lineHeight=16.sp)
             Text(S("当前 API Key：")+if(st.cloudApiKey.isNotBlank()) cleanCloudApiKey(st.cloudApiKey) else S("未设置"),fontSize=12.sp,color=Color(0xFF8A94A6),lineHeight=17.sp)
@@ -2749,7 +2885,7 @@ fun App设置.mutableState()= mutableStateOf(this)
 }
 
 fun App设置.copyMut(block:App设置.()->Unit):App设置{ val n=this.copy(); n.block(); return n }
-fun App设置.copy()=App设置(dark,remind天,trafficUrl,trafficKb,tgEnabled,botToken,chatId,keepCycle,backgroundUri,backgroundAlpha,reminderEnabled,notificationEnabled,remindHour,remindMinute,language,emailQuickEnabled,smtpEnabled,smtpHost,smtpPort,smtpUser,smtpPass,smtpFrom,smtpTo,cloudEnabled,cloudUrl,cloudApiKey,cloudTelegramEnabled,cloudEmailEnabled,cloudAutoSync,showFlag)
+fun App设置.copy()=App设置(dark,remind天,trafficUrl,trafficKb,tgEnabled,botToken,chatId,keepCycle,backgroundUri,backgroundAlpha,reminderEnabled,notificationEnabled,remindHour,remindMinute,language,emailQuickEnabled,smtpEnabled,smtpHost,smtpPort,smtpUser,smtpPass,smtpFrom,smtpTo,cloudEnabled,cloudUrl,cloudApiKey,cloudTelegramEnabled,cloudEmailEnabled,cloudAutoSync,showFlag,bankCardStyle)
 @Composable fun Presets(on:(String)->Unit){
     Row(horizontalArrangement=Arrangement.spacedBy(5.dp)){
         mapOf(
@@ -2835,12 +2971,12 @@ fun App设置.copy()=App设置(dark,remind天,trafficUrl,trafficKb,tgEnabled,bot
 
 fun csvEscape(v:String)= if(v.any{ it==',' || it=='"' || it=='\n' || it=='\r' }) "\""+v.replace("\"","\"\"")+"\"" else v
 fun csvLine(values:List<String>)=values.joinToString(","){csvEscape(it)}
-fun recordFields(r:PhoneNumberRecord)=listOf(r.id,r.countryCode,r.countryName,r.flag,r.number,r.operator,r.expireDate,r.note,r.balance,r.eid,r.smdp,r.activationCode,r.startDate,r.createdAt,r.activatedAt,r.longTerm.toString(),r.cycleDays.toString(),r.signalStatus)
-val recordHeader=listOf("id","countryCode","countryName","flag","number","operator","expireDate","note","balance","eid","smdp","activationCode","startDate","createdAt","activatedAt","longTerm","cycleDays","signalStatus")
+fun recordFields(r:PhoneNumberRecord)=listOf(r.id,r.countryCode,r.countryName,r.flag,r.number,r.operator,r.expireDate,r.note,r.balance,r.eid,r.smdp,r.activationCode,r.startDate,r.createdAt,r.activatedAt,r.longTerm.toString(),r.cycleDays.toString(),r.signalStatus,r.cardType,r.cardBackgroundAssetName,r.cyclePaymentMinorUnits.toString(),r.currencyCode)
+val recordHeader=listOf("id","countryCode","countryName","flag","number","operator","expireDate","note","balance","eid","smdp","activationCode","startDate","createdAt","activatedAt","longTerm","cycleDays","signalStatus","cardType","cardBackgroundAssetName","cyclePaymentMinorUnits","currencyCode")
 
-fun settingsToJson(s:App设置):JSONObject = JSONObject().put("dark",s.dark).put("remind天",s.remind天).put("trafficUrl",s.trafficUrl).put("trafficKb",s.trafficKb).put("tgEnabled",s.tgEnabled).put("botToken",s.botToken).put("chatId",s.chatId).put("keepCycle",s.keepCycle).put("backgroundUri",s.backgroundUri).put("backgroundAlpha",s.backgroundAlpha.toDouble()).put("reminderEnabled",s.reminderEnabled).put("notificationEnabled",s.notificationEnabled).put("remindHour",s.remindHour).put("remindMinute",s.remindMinute).put("language",s.language).put("emailQuickEnabled",s.emailQuickEnabled).put("smtpEnabled",s.smtpEnabled).put("smtpHost",s.smtpHost).put("smtpPort",s.smtpPort).put("smtpUser",s.smtpUser).put("smtpPass",s.smtpPass).put("smtpFrom",s.smtpFrom).put("smtpTo",s.smtpTo).put("cloudEnabled",s.cloudEnabled).put("cloudUrl",s.cloudUrl).put("cloudApiKey",s.cloudApiKey).put("cloudTelegramEnabled",s.cloudTelegramEnabled).put("cloudEmailEnabled",s.cloudEmailEnabled).put("cloudAutoSync",s.cloudAutoSync).put("showFlag",s.showFlag)
+fun settingsToJson(s:App设置):JSONObject = JSONObject().put("dark",s.dark).put("remind天",s.remind天).put("trafficUrl",s.trafficUrl).put("trafficKb",s.trafficKb).put("tgEnabled",s.tgEnabled).put("botToken",s.botToken).put("chatId",s.chatId).put("keepCycle",s.keepCycle).put("backgroundUri",s.backgroundUri).put("backgroundAlpha",s.backgroundAlpha.toDouble()).put("reminderEnabled",s.reminderEnabled).put("notificationEnabled",s.notificationEnabled).put("remindHour",s.remindHour).put("remindMinute",s.remindMinute).put("language",s.language).put("emailQuickEnabled",s.emailQuickEnabled).put("smtpEnabled",s.smtpEnabled).put("smtpHost",s.smtpHost).put("smtpPort",s.smtpPort).put("smtpUser",s.smtpUser).put("smtpPass",s.smtpPass).put("smtpFrom",s.smtpFrom).put("smtpTo",s.smtpTo).put("cloudEnabled",s.cloudEnabled).put("cloudUrl",s.cloudUrl).put("cloudApiKey",s.cloudApiKey).put("cloudTelegramEnabled",s.cloudTelegramEnabled).put("cloudEmailEnabled",s.cloudEmailEnabled).put("cloudAutoSync",s.cloudAutoSync).put("showFlag",s.showFlag).put("bankCardStyle",s.bankCardStyle)
 
-fun settingsFromJson(o:JSONObject):App设置 = App设置(dark=o.optBoolean("dark",false),remind天=o.optInt("remind天",7),trafficUrl=o.optString("trafficUrl","https://speed.cloudflare.com/__down?bytes=10485760"),trafficKb=o.optDouble("trafficKb",1.0),tgEnabled=o.optBoolean("tgEnabled",false),botToken=o.optString("botToken",""),chatId=o.optString("chatId",""),keepCycle=o.optString("keepCycle","月"),backgroundUri=o.optString("backgroundUri",""),backgroundAlpha=o.optDouble("backgroundAlpha",0.72).toFloat(),reminderEnabled=o.optBoolean("reminderEnabled",true),notificationEnabled=o.optBoolean("notificationEnabled",true),remindHour=o.optInt("remindHour",9),remindMinute=o.optInt("remindMinute",0),language=o.optString("language","简体中文"),emailQuickEnabled=o.optBoolean("emailQuickEnabled",true),smtpEnabled=o.optBoolean("smtpEnabled",false),smtpHost=o.optString("smtpHost",""),smtpPort=o.optInt("smtpPort",465),smtpUser=o.optString("smtpUser",""),smtpPass=o.optString("smtpPass",""),smtpFrom=o.optString("smtpFrom",""),smtpTo=o.optString("smtpTo",""),cloudEnabled=o.optBoolean("cloudEnabled",false),cloudUrl=o.optString("cloudUrl","https://ccs.ziranaa.top:16670"),cloudApiKey=o.optString("cloudApiKey",""),cloudTelegramEnabled=o.optBoolean("cloudTelegramEnabled",true),cloudEmailEnabled=o.optBoolean("cloudEmailEnabled",true),cloudAutoSync=o.optBoolean("cloudAutoSync",false),showFlag=o.optBoolean("showFlag",true))
+fun settingsFromJson(o:JSONObject):App设置 = App设置(dark=o.optBoolean("dark",false),remind天=o.optInt("remind天",7),trafficUrl=o.optString("trafficUrl","https://speed.cloudflare.com/__down?bytes=10485760"),trafficKb=o.optDouble("trafficKb",1.0),tgEnabled=o.optBoolean("tgEnabled",false),botToken=o.optString("botToken",""),chatId=o.optString("chatId",""),keepCycle=o.optString("keepCycle","月"),backgroundUri=o.optString("backgroundUri",""),backgroundAlpha=o.optDouble("backgroundAlpha",0.72).toFloat(),reminderEnabled=o.optBoolean("reminderEnabled",true),notificationEnabled=o.optBoolean("notificationEnabled",true),remindHour=o.optInt("remindHour",9),remindMinute=o.optInt("remindMinute",0),language=o.optString("language","简体中文"),emailQuickEnabled=o.optBoolean("emailQuickEnabled",true),smtpEnabled=o.optBoolean("smtpEnabled",false),smtpHost=o.optString("smtpHost",""),smtpPort=o.optInt("smtpPort",465),smtpUser=o.optString("smtpUser",""),smtpPass=o.optString("smtpPass",""),smtpFrom=o.optString("smtpFrom",""),smtpTo=o.optString("smtpTo",""),cloudEnabled=o.optBoolean("cloudEnabled",false),cloudUrl=o.optString("cloudUrl","https://ccs.ziranaa.top:16670"),cloudApiKey=o.optString("cloudApiKey",""),cloudTelegramEnabled=o.optBoolean("cloudTelegramEnabled",true),cloudEmailEnabled=o.optBoolean("cloudEmailEnabled",true),cloudAutoSync=o.optBoolean("cloudAutoSync",false),showFlag=o.optBoolean("showFlag",true),bankCardStyle=o.optBoolean("bankCardStyle",false))
 
 fun exportRecordsJson(records:List<PhoneNumberRecord>,settings:App设置):String{
     val root=JSONObject()
@@ -2870,7 +3006,7 @@ fun splitCsvLine(line:String):List<String>{
 
 fun parseRecordObject(o:JSONObject)=PhoneNumberRecord(
     id=o.optString("id",UUID.randomUUID().toString()), countryCode=o.optString("countryCode","+86"), countryName=o.optString("countryName","中国"), flag=o.optString("flag","🇨🇳"), number=o.optString("number"), operator=o.optString("operator"), expireDate=o.optString("expireDate",LocalDate.now().plusDays(30).toString()), note=o.optString("note"),
-    balance=o.optString("balance"), eid=o.optString("eid"), smdp=o.optString("smdp"), activationCode=o.optString("activationCode"), startDate=o.optString("startDate",LocalDate.now().toString()), createdAt=o.optString("createdAt",LocalDate.now().toString()), activatedAt=o.optString("activatedAt"), longTerm=o.optBoolean("longTerm",false), cycleDays=o.optInt("cycleDays",30), signalStatus=o.optString("signalStatus","在线"), tags=o.optString("tags",""), transactionNotes=o.optString("transactionNotes",""), customPrompt=o.optString("customPrompt",""), websiteURL=o.optString("websiteURL",""), cyclePaymentMinorUnits=o.optInt("cyclePaymentMinorUnits",0), currencyCode=o.optString("currencyCode",""), cardBackgroundAssetName=o.optString("cardBackgroundAssetName",""), cardColorHex=o.optString("cardColorHex",""), sortOrder=o.optInt("sortOrder",0)
+    balance=o.optString("balance"), eid=o.optString("eid"), smdp=o.optString("smdp"), activationCode=o.optString("activationCode"), startDate=o.optString("startDate",LocalDate.now().toString()), createdAt=o.optString("createdAt",LocalDate.now().toString()), activatedAt=o.optString("activatedAt"), longTerm=o.optBoolean("longTerm",false), cycleDays=o.optInt("cycleDays",30), signalStatus=o.optString("signalStatus","在线"), tags=o.optString("tags",""), transactionNotes=o.optString("transactionNotes",""), customPrompt=o.optString("customPrompt",""), websiteURL=o.optString("websiteURL",""), cyclePaymentMinorUnits=o.optInt("cyclePaymentMinorUnits",0), currencyCode=o.optString("currencyCode",""), cardBackgroundAssetName=o.optString("cardBackgroundAssetName",""), cardColorHex=o.optString("cardColorHex",""), cardType=o.optString("cardType","prepaid"), sortOrder=o.optInt("sortOrder",0)
 )
 fun parseRecordsJson(text:String):Pair<List<PhoneNumberRecord>,App设置?>{
     return runCatching{
@@ -2887,7 +3023,7 @@ fun parseRecordsCsv(text:String):List<PhoneNumberRecord>{
         val header=splitCsvLine(lines.first()).map{it.trim()}
         lines.drop(1).mapNotNull{ line->
             val vals=splitCsvLine(line); val map=header.mapIndexedNotNull{ i,k-> vals.getOrNull(i)?.let{k to it} }.toMap()
-            val o=JSONObject(); map.forEach{(k,v)-> when(k){"longTerm"->o.put(k,v.toBoolean());"cycleDays"->o.put(k,v.toIntOrNull()?:30);else->o.put(k,v)} }
+            val o=JSONObject(); map.forEach{(k,v)-> when(k){"longTerm"->o.put(k,v.toBoolean());"cycleDays"->o.put(k,v.toIntOrNull()?:30);"cyclePaymentMinorUnits"->o.put(k,v.toIntOrNull()?:0);else->o.put(k,v)} }
             parseRecordObject(o).takeIf{it.number.isNotBlank()}
         }
     }.getOrElse{ emptyList() }

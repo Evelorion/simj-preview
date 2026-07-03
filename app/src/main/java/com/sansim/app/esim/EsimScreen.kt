@@ -306,7 +306,6 @@ fun EsimScreen(modifier: Modifier = Modifier) {
                     usbDevices = usbDevices,
                     busy = busy,
                     onInternal = { connect(OmapReader(context)) },
-                    onTelephony = { connect(TelephonyReaderBackend(context)) },
                     onDetectUsb = { refreshUsb() },
                     onUsb = { requestUsbPermission(it) }
                 )
@@ -438,12 +437,11 @@ private fun EsimHeroCard(
     }
 }
 
-@Composable private fun ReaderPanel(cardBg: Color, cardSoft: Color, textPrimary: Color, textSecondary: Color, textMuted: Color, borderColor: Color, blueSoft: Color, usbDevices: List<UsbDevice>, busy: Boolean, onInternal: () -> Unit, onTelephony: () -> Unit, onDetectUsb: () -> Unit, onUsb: (UsbDevice) -> Unit) {
+@Composable private fun ReaderPanel(cardBg: Color, cardSoft: Color, textPrimary: Color, textSecondary: Color, textMuted: Color, borderColor: Color, blueSoft: Color, usbDevices: List<UsbDevice>, busy: Boolean, onInternal: () -> Unit, onDetectUsb: () -> Unit, onUsb: (UsbDevice) -> Unit) {
     CardBlock(cardBg, borderColor) {
         SectionTitle(L("读卡器"), L("选择内置 eSIM 或 USB 实体卡"), textPrimary, textMuted)
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
             ReaderButton(L("内置 eSIM"), "OMAPI", Color(0xFF007AFF), textSecondary, !busy, Modifier.weight(1f), onInternal)
-            ReaderButton("Telephony", "Root", Color(0xFFFF9500), textSecondary, !busy, Modifier.weight(1f), onTelephony)
             ReaderButton(L("检测 USB"), "CCID", Color(0xFF34C759), textSecondary, !busy, Modifier.weight(1f), onDetectUsb)
         }
         usbDevices.forEach { dev ->

@@ -1,0 +1,322 @@
+{
+  "bank_card_006.jpg": {
+    "countryRemark": "葡萄牙",
+    "countryEn": "Portugal"
+  },
+  "bank_card_010.jpg": {
+    "countryRemark": "荷兰",
+    "countryEn": "Netherlands"
+  },
+  "bank_card_015.jpg": {
+    "countryRemark": "韩国",
+    "countryEn": "South Korea"
+  },
+  "bank_card_019.jpg": {
+    "countryRemark": "丹麦",
+    "countryEn": "Denmark"
+  },
+  "bank_card_024.jpg": {
+    "countryRemark": "阿根廷",
+    "countryEn": "Argentina"
+  },
+  "bank_card_027.jpg": {
+    "countryRemark": "塞尔维亚",
+    "countryEn": "Serbia"
+  },
+  "bank_card_028.jpg": {
+    "countryRemark": "芬兰",
+    "countryEn": "Finland"
+  },
+  "bank_card_034.jpg": {
+    "countryRemark": "加拿大",
+    "countryEn": "Canada"
+  },
+  "bank_card_037.jpg": {
+    "countryRemark": "黑山",
+    "countryEn": "Montenegro"
+  },
+  "bank_card_038.jpg": {
+    "countryRemark": "美国",
+    "countryEn": "United States"
+  },
+  "bank_card_043.jpg": {
+    "countryRemark": "新加坡",
+    "countryEn": "Singapore"
+  },
+  "bank_card_058.jpg": {
+    "countryRemark": "匈牙利",
+    "countryEn": "Hungary"
+  },
+  "bank_card_060.jpg": {
+    "countryRemark": "哈萨克斯坦",
+    "countryEn": "Kazakhstan"
+  },
+  "bank_card_061.jpg": {
+    "countryRemark": "爱沙尼亚",
+    "countryEn": "Estonia"
+  },
+  "bank_card_064.jpg": {
+    "countryRemark": "尼日利亚",
+    "countryEn": "Nigeria"
+  },
+  "bank_card_065.jpg": {
+    "countryRemark": "缅甸",
+    "countryEn": "Myanmar"
+  },
+  "bank_card_066.jpg": {
+    "countryRemark": "斯洛文尼亚",
+    "countryEn": "Slovenia"
+  },
+  "bank_card_068.jpg": {
+    "countryRemark": "卡塔尔",
+    "countryEn": "Qatar"
+  },
+  "bank_card_082.jpg": {
+    "countryRemark": "印度",
+    "countryEn": "India"
+  },
+  "bank_card_083.jpg": {
+    "countryRemark": "智利",
+    "countryEn": "Chile"
+  },
+  "bank_card_084.jpg": {
+    "countryRemark": "中国",
+    "countryEn": "China"
+  },
+  "bank_card_087.jpg": {
+    "countryRemark": "爱尔兰",
+    "countryEn": "Ireland"
+  },
+  "bank_card_090.jpg": {
+    "countryRemark": "巴西",
+    "countryEn": "Brazil"
+  },
+  "bank_card_094.jpg": {
+    "countryRemark": "文莱",
+    "countryEn": "Brunei"
+  },
+  "bank_card_105.jpg": {
+    "countryRemark": "阿曼",
+    "countryEn": "Oman"
+  },
+  "bank_card_107.jpg": {
+    "countryRemark": "希腊",
+    "countryEn": "Greece"
+  },
+  "bank_card_109.jpg": {
+    "countryRemark": "瑞典",
+    "countryEn": "Sweden"
+  },
+  "bank_card_110.jpg": {
+    "countryRemark": "挪威",
+    "countryEn": "Norway"
+  },
+  "bank_card_111.jpg": {
+    "countryRemark": "孟加拉国",
+    "countryEn": "Bangladesh"
+  },
+  "bank_card_115.jpg": {
+    "countryRemark": "巴基斯坦",
+    "countryEn": "Pakistan"
+  },
+  "bank_card_122.jpg": {
+    "countryRemark": "埃及",
+    "countryEn": "Egypt"
+  },
+  "bank_card_123.jpg": {
+    "countryRemark": "肯尼亚",
+    "countryEn": "Kenya"
+  },
+  "bank_card_124.jpg": {
+    "countryRemark": "法国",
+    "countryEn": "France"
+  },
+  "bank_card_134.jpg": {
+    "countryRemark": "香港",
+    "countryEn": "Hong Kong"
+  },
+  "bank_card_137.jpg": {
+    "countryRemark": "马来西亚",
+    "countryEn": "Malaysia"
+  },
+  "bank_card_139.jpg": {
+    "countryRemark": "保加利亚",
+    "countryEn": "Bulgaria"
+  },
+  "bank_card_144.jpg": {
+    "countryRemark": "日本",
+    "countryEn": "Japan"
+  },
+  "bank_card_160.jpg": {
+    "countryRemark": "朝鲜",
+    "countryEn": "North Korea"
+  },
+  "bank_card_165.jpg": {
+    "countryRemark": "奥地利",
+    "countryEn": "Austria"
+  },
+  "bank_card_167.jpg": {
+    "countryRemark": "印尼",
+    "countryEn": "Indonesia"
+  },
+  "bank_card_168.jpg": {
+    "countryRemark": "菲律宾",
+    "countryEn": "Philippines"
+  },
+  "bank_card_174.jpg": {
+    "countryRemark": "澳门",
+    "countryEn": "Macau"
+  },
+  "bank_card_176.jpg": {
+    "countryRemark": "阿联酋",
+    "countryEn": "UAE"
+  },
+  "bank_card_178.jpg": {
+    "countryRemark": "墨西哥",
+    "countryEn": "Mexico"
+  },
+  "bank_card_180.jpg": {
+    "countryRemark": "克罗地亚",
+    "countryEn": "Croatia"
+  },
+  "bank_card_183.jpg": {
+    "countryRemark": "哥伦比亚",
+    "countryEn": "Colombia"
+  },
+  "bank_card_184.jpg": {
+    "countryRemark": "罗马尼亚",
+    "countryEn": "Romania"
+  },
+  "bank_card_188.jpg": {
+    "countryRemark": "瑞士",
+    "countryEn": "Switzerland"
+  },
+  "bank_card_189.jpg": {
+    "countryRemark": "拉脱维亚",
+    "countryEn": "Latvia"
+  },
+  "bank_card_191.jpg": {
+    "countryRemark": "沙特阿拉伯",
+    "countryEn": "Saudi Arabia"
+  },
+  "bank_card_195.jpg": {
+    "countryRemark": "意大利",
+    "countryEn": "Italy"
+  },
+  "bank_card_201.jpg": {
+    "countryRemark": "西班牙",
+    "countryEn": "Spain"
+  },
+  "bank_card_203.jpg": {
+    "countryRemark": "斯洛伐克",
+    "countryEn": "Slovakia"
+  },
+  "bank_card_204.jpg": {
+    "countryRemark": "英国",
+    "countryEn": "United Kingdom"
+  },
+  "bank_card_206.jpg": {
+    "countryRemark": "捷克",
+    "countryEn": "Czech Republic"
+  },
+  "bank_card_209.jpg": {
+    "countryRemark": "土耳其",
+    "countryEn": "Turkey"
+  },
+  "bank_card_212.jpg": {
+    "countryRemark": "科威特",
+    "countryEn": "Kuwait"
+  },
+  "bank_card_213.jpg": {
+    "countryRemark": "以色列",
+    "countryEn": "Israel"
+  },
+  "bank_card_214.jpg": {
+    "countryRemark": "冰岛",
+    "countryEn": "Iceland"
+  },
+  "bank_card_216.jpg": {
+    "countryRemark": "柬埔寨",
+    "countryEn": "Cambodia"
+  },
+  "bank_card_220.jpg": {
+    "countryRemark": "斯里兰卡",
+    "countryEn": "Sri Lanka"
+  },
+  "bank_card_221.jpg": {
+    "countryRemark": "俄罗斯",
+    "countryEn": "Russia"
+  },
+  "bank_card_222.jpg": {
+    "countryRemark": "乌克兰",
+    "countryEn": "Ukraine"
+  },
+  "bank_card_223.jpg": {
+    "countryRemark": "泰国",
+    "countryEn": "Thailand"
+  },
+  "bank_card_225.jpg": {
+    "countryRemark": "秘鲁",
+    "countryEn": "Peru"
+  },
+  "bank_card_226.jpg": {
+    "countryRemark": "老挝",
+    "countryEn": "Laos"
+  },
+  "bank_card_228.jpg": {
+    "countryRemark": "波兰",
+    "countryEn": "Poland"
+  },
+  "bank_card_229.jpg": {
+    "countryRemark": "约旦",
+    "countryEn": "Jordan"
+  },
+  "bank_card_232.jpg": {
+    "countryRemark": "波黑",
+    "countryEn": "Bosnia and Herzegovina"
+  },
+  "bank_card_234.jpg": {
+    "countryRemark": "澳大利亚",
+    "countryEn": "Australia"
+  },
+  "bank_card_238.jpg": {
+    "countryRemark": "马尔代夫",
+    "countryEn": "Maldives"
+  },
+  "bank_card_244.jpg": {
+    "countryRemark": "尼泊尔",
+    "countryEn": "Nepal"
+  },
+  "bank_card_245.jpg": {
+    "countryRemark": "南非",
+    "countryEn": "South Africa"
+  },
+  "bank_card_254.jpg": {
+    "countryRemark": "比利时",
+    "countryEn": "Belgium"
+  },
+  "bank_card_257.jpg": {
+    "countryRemark": "越南",
+    "countryEn": "Vietnam"
+  },
+  "bank_card_260.jpg": {
+    "countryRemark": "德国",
+    "countryEn": "Germany"
+  },
+  "bank_card_262.jpg": {
+    "countryRemark": "新西兰",
+    "countryEn": "New Zealand"
+  },
+  "bank_card_265.jpg": {
+    "countryRemark": "立陶宛",
+    "countryEn": "Lithuania"
+  },
+  "bank_card_268.jpg": {
+    "countryRemark": "阿尔巴尼亚",
+    "countryEn": "Albania"
+  },
+  "bank_card_269.jpg": {
+    "countryRemark": "摩洛哥",
+    "countryEn": "Morocco"
+  }
+}
