@@ -1,14 +1,20 @@
-# simJ
+# simJ Preview
 
 simJ — SIM 卡 & eSIM 全能管家。
 
-一款专为多卡用户打造的号码保号 + eSIM 管理 Android 工具。
+一款专为多卡用户打造的号码保号 + eSIM 管理 Android 工具。预览版包含最新实验性功能。
+
+## ⚠️ 升级提醒 (v3.0.21-pre)
+
+> **更新 3.0.21 之前请先保存好 Key 和导出备份！**
+>
+> 现版本软件签名已更换（已获授权），兼容了更多的实体 eSIM 证书（当然能不能用看你买卡的运气）。
 
 ## 功能
 
 - 📱 **号码保号管理** — 130+ 国家号码录入，智能到期提醒，批量管理
 - 🌐 **eSIM 管理** — 内置 eSIM (OMAPI) + USB 实体卡双通道，扫码/相册/手动下载 Profile
-- ☁️ **云端提醒** — Telegram Bot / SMTP 邮件 / 云端 API 同步
+- ☁️ **云端提醒** — Telegram Bot / SMTP 邮件 / 云端 API 同步 + 自建服务地址自定义
 - 🛠️ **实用工具** — 刷流量测试、拨号测试、JSON/CSV 导入导出
 - 🌙 **深色模式** — 全局适配
 - 🌍 **多语言** — 简体中文、繁体中文、English、日本語、阿拉伯语 (RTL)
@@ -18,12 +24,12 @@ simJ — SIM 卡 & eSIM 全能管家。
 ## 构建
 
 ```bash
-gradle assembleDebug --no-daemon --max-workers=1
+gradle assembleRelease --no-daemon --max-workers=1
 ```
 
 ## 下载
 
-[Latest Release](https://github.com/yanglh1/SimJ/releases)
+[Latest Release](https://github.com/yanglh1/simj-preview/releases)
 
 ---
 
