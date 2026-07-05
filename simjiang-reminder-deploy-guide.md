@@ -512,8 +512,51 @@ sqlite3 /opt/simjiang-reminder/data.db "UPDATE user_meta SET enabled=0 WHERE api
 
 在 simJ App 的「云端提醒」设置页中填写：
 
-- **云端地址**：`http://你的IP:8787` 或 `https://你的域名`
-- **API Key**：通过 `/api/register` 获取
+### 9.1 启用云端提醒
+
+打开「启用云端提醒」开关。
+
+### 9.2 设置服务地址
+
+**默认地址**：留空则使用官方服务 `https://ccs.ziranaa.top:16670`
+
+**自建服务**：填入你的服务器地址，格式：
+```
+http://IP:端口
+```
+例如：`http://123.45.67.89:8787` 或 `https://reminder.yourdomain.com`
+
+> ⚠️ 注意：
+> - 必须以 `http://` 或 `https://` 开头
+> - 不要以 `/` 结尾
+> - 自建服务需要先完成上方的服务器部署
+
+### 9.3 获取 API Key
+
+**方式一：网页生成**
+在 App 中点击「生成 API Key」，App 会自动调用 `/api/register` 接口创建。
+
+**方式二：手动获取**
+```bash
+curl -X POST http://你的IP:8787/api/register \
+  -H "Content-Type: application/json" \
+  -d '{"nickname": "我的手机"}'
+```
+返回：`{"ok":true, "apiKey": "xxxxxxxxxxxxxxxxxxxxxxxx"}`
+
+### 9.4 多设备同步
+
+多台设备使用**同一个 API Key** 即可同步同一份数据。在每台设备的 App 中填入相同的 API Key。
+
+### 9.5 数据流向
+
+```
+simJ App ──同步──► simjiang-reminder 服务端
+                       │
+                       ├── 存储号码数据（SQLite）
+                       ├── 检查到期号码（每 30 分钟）
+                       └── 发送提醒（Telegram / 邮件）
+```
 
 App 会自动将号码数据和提醒设置同步到云端，服务端每 30 分钟自动检查一次到期号码并发送提醒。
 
