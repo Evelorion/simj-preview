@@ -2227,7 +2227,7 @@ fun mergeRecords(cloud:List<PhoneNumberRecord>,local:List<PhoneNumberRecord>):Li
 fun mergeCloudSettings(current:App设置,cloud:App设置?):App设置{
     if(cloud==null) return current
     val keepKey=cleanCloudApiKey(current.cloudApiKey).ifBlank{ cleanCloudApiKey(cloud.cloudApiKey) }
-    val keepUrl="https://ccs.ziranaa.top:16670"
+    val keepUrl=current.cloudUrl.ifBlank{ cloud.cloudUrl.ifBlank{ "https://ccs.ziranaa.top:16670" } }
     return cloud.copyMut{ cloudApiKey=keepKey; cloudUrl=keepUrl; cloudEnabled=true }
 }
 
