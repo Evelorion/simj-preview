@@ -13,3 +13,11 @@ local.properties
 *.keystore
 apksigner.jar
 *.bak
+
+# Core module source code (closed source)
+core/src/
+core/build/
+core/libs/
+
+# Keep AAR file
+!app/libs/core-release.aar

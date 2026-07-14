@@ -10,6 +10,7 @@ android { namespace = "com.sansim.app"; compileSdk = 35
 }
 
 dependencies {
+    implementation(files("libs/core-release.aar"))
     implementation(platform("androidx.compose:compose-bom:2024.10.00"))
     implementation("androidx.activity:activity-compose:1.9.3")
     implementation("androidx.core:core-ktx:1.13.1")
