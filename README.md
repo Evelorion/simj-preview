@@ -4,6 +4,26 @@ simJ — SIM 卡 & eSIM 全能管家。
 
 一款专为多卡用户打造的号码保号 + eSIM 管理 Android 工具。预览版包含最新实验性功能。
 
+## 预览
+
+以下为示例预览图，不包含维护者服务器地址、真实号码或部署凭据。
+
+<p align="center">
+  <img src="docs/images/app-preview.png" alt="simJ Android App preview" width="760">
+</p>
+
+<p align="center">
+  <img src="docs/images/web-globe.png" alt="simJ Web globe preview" width="760">
+</p>
+
+<p align="center">
+  <img src="docs/images/web-profile.png" alt="simJ country profile panel" width="760">
+</p>
+
+<p align="center">
+  <img src="docs/images/web-admin.png" alt="simJ admin console preview" width="760">
+</p>
+
 ## 开发接手
 
 继续改 **App / 云端 / 3D 地球 / 管理后台** 请先读：

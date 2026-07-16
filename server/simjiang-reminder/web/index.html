@@ -54,12 +54,16 @@
     button.toggle-btn:hover { background: rgba(255, 255, 255, 0.2); }
 
     #profilePanel {
+      --panel-flag-url: none;
       display: none;
       position: absolute;
       bottom: 40px;
       left: 40px;
       width: 380px;
-      background: #0a0c12;
+      background:
+        radial-gradient(280px 240px at 20% 16%, rgba(51, 214, 167, 0.16), transparent 70%),
+        radial-gradient(340px 260px at 88% 78%, rgba(131, 89, 255, 0.16), transparent 72%),
+        #080c14;
       border-radius: 24px;
       border: 1px solid rgba(255, 255, 255, 0.14);
       box-shadow: 0 20px 50px rgba(0, 0, 0, 0.7);
@@ -72,18 +76,45 @@
       from { opacity: 0; transform: translateX(-20px); }
       to { opacity: 1; transform: translateX(0); }
     }
-    /* 整块背景 = 当前国家国旗 */
+    /* 轻量国旗氛围层：复用小旗图，不请求额外大图 */
     #panelAmbientBg {
       position: absolute;
       inset: 0;
-      background-size: cover;
-      background-position: center;
-      background-repeat: no-repeat;
       z-index: 0;
       pointer-events: none;
-      transform: scale(1.02);
+      overflow: hidden;
+      opacity: 0.98;
+      transform: translateZ(0);
+      background:
+        radial-gradient(circle at 20% 24%, rgba(255,255,255,.18), transparent 30%),
+        linear-gradient(90deg, rgba(3,7,14,.34) 0%, rgba(8,12,20,.10) 42%, rgba(8,12,20,.62) 100%),
+        var(--panel-flag-url);
+      background-size: auto, auto, cover;
+      background-position: center, center, center;
+      background-repeat: no-repeat;
+      filter: saturate(1.22) contrast(1.06) brightness(1.16);
     }
-    /* 深色遮罩，保证文字可读，国旗仍清晰可见 */
+    #panelAmbientBg::before {
+      content: "";
+      position: absolute;
+      inset: -18%;
+      background-image: var(--panel-flag-url);
+      background-size: 145% auto;
+      background-position: center;
+      background-repeat: no-repeat;
+      opacity: .52;
+      filter: blur(16px) saturate(1.42) brightness(1.1);
+      transform: scale(1.04);
+    }
+    #panelAmbientBg::after {
+      content: "";
+      position: absolute;
+      inset: 0;
+      background:
+        linear-gradient(180deg, rgba(6,10,18,.18) 0%, rgba(6,10,18,.32) 52%, rgba(6,10,18,.68) 100%),
+        radial-gradient(circle at 10% 16%, rgba(110,231,183,.22), transparent 34%);
+    }
+    /* 深色遮罩，保证文字可读，国旗只做视觉氛围 */
     #profilePanel::after {
       content: "";
       position: absolute;
@@ -91,8 +122,8 @@
       z-index: 0;
       pointer-events: none;
       background:
-        linear-gradient(180deg, rgba(6,10,18,.42) 0%, rgba(6,10,18,.62) 45%, rgba(6,10,18,.78) 100%),
-        rgba(8,12,20,.28);
+        linear-gradient(180deg, rgba(6,10,18,.12) 0%, rgba(6,10,18,.28) 44%, rgba(6,10,18,.62) 100%),
+        linear-gradient(90deg, rgba(2,6,12,.25) 0%, rgba(2,6,12,.04) 46%, rgba(2,6,12,.42) 100%);
     }
     .panel-content { position: relative; z-index: 1; padding: 25px; }
     .panel-header {
@@ -446,19 +477,17 @@
       if (iso2 && regionNamesZh) {
         try { nameZh = regionNamesZh.of(iso2) || nameEn; } catch (e) {}
       }
-      // 角标用小图；面板整块背景用大图。优先本地 /assets/flags，失败再 CDN
+      // 角标与背景复用小图。优先本地 /assets/flags，失败再 CDN 小图，避免额外大图请求。
       const isoLow = iso2 ? iso2.toLowerCase() : '';
       const localFlag = iso2 ? `/assets/flags/${iso2}.png` : '';
       let flagThumb = iso2 ? (localFlag || `https://flagcdn.com/w160/${isoLow}.png`) : '';
-      let flagBg = iso2
-        ? (localFlag || `https://flagcdn.com/w640/${isoLow}.png`)
-        : '';
+      let flagBg = flagThumb;
 
       if (iso2 === 'TW' || /taiwan/i.test(nameEn)) {
         nameZh = '中国台湾省';
         nameEn = 'Taiwan Province of China';
         flagThumb = localFlag || `https://flagcdn.com/w160/tw.png`;
-        flagBg = localFlag || `https://flagcdn.com/w640/tw.png`;
+        flagBg = flagThumb;
       } else if (iso2 === 'HK') {
         nameZh = '中国香港特别行政区';
         nameEn = 'Hong Kong SAR, China';
@@ -470,12 +499,15 @@
       const data = phoneDataDict[iso2];
       document.getElementById('isoCircleIcon').innerText = iso2 || '🌍';
       const flagImgEl = document.getElementById('flagImg');
+      const panelEl = document.getElementById('profilePanel');
+      const setPanelFlag = (url) => {
+        panelEl.style.setProperty('--panel-flag-url', url ? `url("${String(url).replace(/"/g, '%22')}")` : 'none');
+      };
       flagImgEl.onerror = function () {
         if (isoLow && !this.dataset.cdn) {
           this.dataset.cdn = '1';
           this.src = `https://flagcdn.com/w160/${isoLow}.png`;
-          document.getElementById('panelAmbientBg').style.backgroundImage =
-            `url(https://flagcdn.com/w640/${isoLow}.png)`;
+          setPanelFlag(`https://flagcdn.com/w160/${isoLow}.png`);
         }
       };
       delete flagImgEl.dataset.cdn;
@@ -491,7 +523,7 @@
       document.getElementById('cardCoords').innerText =
         `${lat.toFixed(2)}°, ${lng.toFixed(2)}° (${latStr}, ${lngStr})`;
       // 每个国家面板背景 = 该国国旗
-      document.getElementById('panelAmbientBg').style.backgroundImage = flagBg ? `url(${flagBg})` : 'none';
+      setPanelFlag(flagBg);
 
       // App coverage badge — click opens number cards (portal)
       const meta = coverageMetaByIso.get(iso2);
