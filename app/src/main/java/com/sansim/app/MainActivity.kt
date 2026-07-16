@@ -7,6 +7,7 @@ import com.sansim.app.data.model.OperatorInfo
 import com.sansim.app.data.model.OperatorDatabase
 import com.sansim.app.data.model.PhoneNumberRecord
 import com.sansim.app.data.model.App设置
+import com.sansim.app.data.model.DEFAULT_SIMJ_CLOUD_URL
 import com.sansim.app.i18n.tr
 import com.sansim.app.i18n.dayText
 import com.sansim.app.i18n.laterText
@@ -63,6 +64,27 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.Add
+import androidx.compose.material.icons.rounded.Check
+import androidx.compose.material.icons.rounded.Close
+import androidx.compose.material.icons.rounded.ContentCopy
+import androidx.compose.material.icons.rounded.CreditCard
+import androidx.compose.material.icons.rounded.DarkMode
+import androidx.compose.material.icons.rounded.Delete
+import androidx.compose.material.icons.rounded.DragIndicator
+import androidx.compose.material.icons.rounded.Edit
+import androidx.compose.material.icons.rounded.KeyboardArrowDown
+import androidx.compose.material.icons.rounded.LightMode
+import androidx.compose.material.icons.rounded.MoreVert
+import androidx.compose.material.icons.rounded.Phone
+import androidx.compose.material.icons.rounded.Public
+import androidx.compose.material.icons.rounded.Refresh
+import androidx.compose.material.icons.rounded.Search
+import androidx.compose.material.icons.rounded.Settings
+import androidx.compose.material.icons.rounded.SimCard
+import androidx.compose.material.icons.rounded.Visibility
+import androidx.compose.material.icons.rounded.VisibilityOff
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import kotlinx.coroutines.Dispatchers
@@ -74,6 +96,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -85,11 +108,18 @@ import java.net.URL
 import java.net.URLEncoder
 import javax.net.ssl.SSLSocketFactory
 import android.util.Base64
+import java.security.MessageDigest
+import java.security.SecureRandom
 import java.time.LocalDate
 import java.time.LocalDateTime
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.util.UUID
+import javax.crypto.Cipher
+import javax.crypto.SecretKeyFactory
+import javax.crypto.spec.GCMParameterSpec
+import javax.crypto.spec.PBEKeySpec
+import javax.crypto.spec.SecretKeySpec
 import coil.compose.AsyncImage
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.graphics.asImageBitmap
@@ -98,6 +128,7 @@ import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.TextStyle
 import androidx.core.content.FileProvider
 import com.sansim.app.esim.EsimScreen
 import androidx.compose.ui.window.Dialog
@@ -112,6 +143,90 @@ import sh.calvin.reorderable.rememberReorderableLazyListState
 
 val LocalIsDark = compositionLocalOf { false }
 @Composable private fun dk(dark: Color, light: Color): Color = if(LocalIsDark.current) dark else light
+
+private val SimJLightColors = lightColorScheme(
+    primary = Color(0xFF0B57D0),
+    onPrimary = Color.White,
+    primaryContainer = Color(0xFFD7E2FF),
+    onPrimaryContainer = Color(0xFF001B3F),
+    secondary = Color(0xFF006D43),
+    onSecondary = Color.White,
+    secondaryContainer = Color(0xFFA7F2C7),
+    onSecondaryContainer = Color(0xFF002111),
+    tertiary = Color(0xFF7C4DFF),
+    onTertiary = Color.White,
+    tertiaryContainer = Color(0xFFE8DDFF),
+    onTertiaryContainer = Color(0xFF25005A),
+    background = Color(0xFFF8FAFF),
+    onBackground = Color(0xFF171B23),
+    surface = Color(0xFFFEFBFF),
+    onSurface = Color(0xFF171B23),
+    surfaceVariant = Color(0xFFE1E5EF),
+    onSurfaceVariant = Color(0xFF424753),
+    outline = Color(0xFF727784),
+    outlineVariant = Color(0xFFC2C7D3),
+    error = Color(0xFFB3261E)
+)
+
+private val SimJDarkColors = darkColorScheme(
+    primary = Color(0xFFAFC6FF),
+    onPrimary = Color(0xFF002E6D),
+    primaryContainer = Color(0xFF174EA6),
+    onPrimaryContainer = Color(0xFFD7E2FF),
+    secondary = Color(0xFF8DD9AE),
+    onSecondary = Color(0xFF00391F),
+    secondaryContainer = Color(0xFF005230),
+    onSecondaryContainer = Color(0xFFA7F2C7),
+    tertiary = Color(0xFFD2BCFF),
+    onTertiary = Color(0xFF3F008F),
+    tertiaryContainer = Color(0xFF5D2FD1),
+    onTertiaryContainer = Color(0xFFE8DDFF),
+    background = Color(0xFF10141C),
+    onBackground = Color(0xFFE3E7F0),
+    surface = Color(0xFF11151D),
+    onSurface = Color(0xFFE3E7F0),
+    surfaceVariant = Color(0xFF424753),
+    onSurfaceVariant = Color(0xFFC2C7D3),
+    outline = Color(0xFF8C919D),
+    outlineVariant = Color(0xFF424753),
+    error = Color(0xFFFFB4AB)
+)
+
+private val SimJTypography = Typography(
+    displaySmall = TextStyle(fontWeight = FontWeight.ExtraBold, fontSize = 36.sp, lineHeight = 42.sp),
+    headlineMedium = TextStyle(fontWeight = FontWeight.ExtraBold, fontSize = 28.sp, lineHeight = 34.sp),
+    headlineSmall = TextStyle(fontWeight = FontWeight.Bold, fontSize = 24.sp, lineHeight = 30.sp),
+    titleLarge = TextStyle(fontWeight = FontWeight.ExtraBold, fontSize = 22.sp, lineHeight = 28.sp),
+    titleMedium = TextStyle(fontWeight = FontWeight.SemiBold, fontSize = 16.sp, lineHeight = 22.sp),
+    titleSmall = TextStyle(fontWeight = FontWeight.Bold, fontSize = 14.sp, lineHeight = 20.sp),
+    labelLarge = TextStyle(fontWeight = FontWeight.SemiBold, fontSize = 14.sp, lineHeight = 20.sp),
+    labelMedium = TextStyle(fontWeight = FontWeight.Bold, fontSize = 12.sp, lineHeight = 16.sp),
+    bodyMedium = TextStyle(fontSize = 14.sp, lineHeight = 20.sp)
+)
+
+private val SimJShapes = Shapes(
+    extraSmall = RoundedCornerShape(8.dp),
+    small = RoundedCornerShape(14.dp),
+    medium = RoundedCornerShape(22.dp),
+    large = RoundedCornerShape(30.dp),
+    extraLarge = RoundedCornerShape(38.dp)
+)
+
+@Composable
+private fun SimJMaterialTheme(dark: Boolean, content: @Composable () -> Unit) {
+    val context = LocalContext.current
+    val colorScheme = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+        if (dark) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
+    } else {
+        if (dark) SimJDarkColors else SimJLightColors
+    }
+    MaterialTheme(
+        colorScheme = colorScheme,
+        typography = SimJTypography,
+        shapes = SimJShapes,
+        content = content
+    )
+}
 
 const val CHANNEL_ID = "san_sim_reminders"
 const val PREF = "san_sim_data"
@@ -128,10 +243,10 @@ class SanSimApplication: Application() { override fun onCreate(){ super.onCreate
 object DataStore {
     fun load设置(ctx:Context):App设置 {
         val p=ctx.getSharedPreferences(PREF,0); val o=JSONObject(p.getString("settings","{}")!!)
-        return App设置(o.optBoolean("dark"),o.optInt("remind天",7),o.optString("trafficUrl","https://speed.cloudflare.com/__down?bytes=10485760"),o.optDouble("trafficKb",1.0),o.optBoolean("tgEnabled"),o.optString("botToken"),o.optString("chatId"),o.optString("keepCycle","月"),o.optString("backgroundUri",""),o.optDouble("backgroundAlpha",0.72).toFloat(),o.optBoolean("reminderEnabled",true),o.optBoolean("notificationEnabled",true),o.optInt("remindHour",9),o.optInt("remindMinute",0),o.optString("language","简体中文"),o.optBoolean("emailQuickEnabled",true),o.optBoolean("smtpEnabled",false),o.optString("smtpHost",""),o.optInt("smtpPort",465),o.optString("smtpUser",""),o.optString("smtpPass",""),o.optString("smtpFrom",""),o.optString("smtpTo",""),o.optBoolean("cloudEnabled",false),o.optString("cloudUrl","https://ccs.ziranaa.top:16670"),o.optString("cloudApiKey",""),o.optBoolean("cloudTelegramEnabled",true),o.optBoolean("cloudEmailEnabled",true),o.optBoolean("cloudAutoSync",false),o.optBoolean("showFlag",true),o.optBoolean("bankCardStyle",false))
+        return App设置(o.optBoolean("dark"),o.optInt("remind天",7),o.optString("trafficUrl","https://speed.cloudflare.com/__down?bytes=10485760"),o.optDouble("trafficKb",1.0),o.optBoolean("tgEnabled"),o.optString("botToken"),o.optString("chatId"),o.optString("keepCycle","月"),o.optString("backgroundUri",""),o.optDouble("backgroundAlpha",0.72).toFloat(),o.optBoolean("reminderEnabled",true),o.optBoolean("notificationEnabled",true),o.optInt("remindHour",9),o.optInt("remindMinute",0),o.optString("language","简体中文"),o.optBoolean("emailQuickEnabled",true),o.optBoolean("smtpEnabled",false),o.optString("smtpHost",""),o.optInt("smtpPort",465),o.optString("smtpUser",""),o.optString("smtpPass",""),o.optString("smtpFrom",""),o.optString("smtpTo",""),o.optBoolean("cloudEnabled",false),cleanBundledCloudUrl(o.optString("cloudUrl","")),o.optString("cloudApiKey",""),o.optBoolean("cloudTelegramEnabled",true),o.optBoolean("cloudEmailEnabled",true),o.optBoolean("cloudAutoSync",false),o.optBoolean("showFlag",true),o.optBoolean("bankCardStyle",false),o.optString("cloudToken",""),o.optString("cloudUsername",""),o.optString("cloudDeviceId",""))
     }
     fun save设置(ctx:Context,s:App设置){
-        val o=JSONObject().put("dark",s.dark).put("remind天",s.remind天).put("trafficUrl",s.trafficUrl).put("trafficKb",s.trafficKb).put("tgEnabled",s.tgEnabled).put("botToken",s.botToken).put("chatId",s.chatId).put("keepCycle",s.keepCycle).put("backgroundUri",s.backgroundUri).put("backgroundAlpha",s.backgroundAlpha.toDouble()).put("reminderEnabled",s.reminderEnabled).put("notificationEnabled",s.notificationEnabled).put("remindHour",s.remindHour).put("remindMinute",s.remindMinute).put("language",s.language).put("emailQuickEnabled",s.emailQuickEnabled).put("smtpEnabled",s.smtpEnabled).put("smtpHost",s.smtpHost).put("smtpPort",s.smtpPort).put("smtpUser",s.smtpUser).put("smtpPass",s.smtpPass).put("smtpFrom",s.smtpFrom).put("smtpTo",s.smtpTo).put("cloudEnabled",s.cloudEnabled).put("cloudUrl",s.cloudUrl).put("cloudApiKey",s.cloudApiKey).put("cloudTelegramEnabled",s.cloudTelegramEnabled).put("cloudEmailEnabled",s.cloudEmailEnabled).put("cloudAutoSync",s.cloudAutoSync).put("showFlag",s.showFlag).put("bankCardStyle",s.bankCardStyle)
+        val o=JSONObject().put("dark",s.dark).put("remind天",s.remind天).put("trafficUrl",s.trafficUrl).put("trafficKb",s.trafficKb).put("tgEnabled",s.tgEnabled).put("botToken",s.botToken).put("chatId",s.chatId).put("keepCycle",s.keepCycle).put("backgroundUri",s.backgroundUri).put("backgroundAlpha",s.backgroundAlpha.toDouble()).put("reminderEnabled",s.reminderEnabled).put("notificationEnabled",s.notificationEnabled).put("remindHour",s.remindHour).put("remindMinute",s.remindMinute).put("language",s.language).put("emailQuickEnabled",s.emailQuickEnabled).put("smtpEnabled",s.smtpEnabled).put("smtpHost",s.smtpHost).put("smtpPort",s.smtpPort).put("smtpUser",s.smtpUser).put("smtpPass",s.smtpPass).put("smtpFrom",s.smtpFrom).put("smtpTo",s.smtpTo).put("cloudEnabled",s.cloudEnabled).put("cloudUrl",cleanBundledCloudUrl(s.cloudUrl)).put("cloudApiKey",s.cloudApiKey).put("cloudTelegramEnabled",s.cloudTelegramEnabled).put("cloudEmailEnabled",s.cloudEmailEnabled).put("cloudAutoSync",s.cloudAutoSync).put("showFlag",s.showFlag).put("bankCardStyle",s.bankCardStyle).put("cloudToken",s.cloudToken).put("cloudUsername",s.cloudUsername).put("cloudDeviceId",s.cloudDeviceId)
         ctx.getSharedPreferences(PREF,0).edit().putString("settings",o.toString()).apply(); ReminderScheduler.schedule全部(ctx)
     }
     fun normalizeLongTerm(r:PhoneNumberRecord):PhoneNumberRecord{
@@ -274,17 +389,16 @@ class MainActivity: ComponentActivity(){ private val req=registerForActivityResu
     var search by remember{ mutableStateOf("") }
     var updateInfo by remember { mutableStateOf<UpdateInfo?>(null) }
     val currentVersion = try { ctx.packageManager.getPackageInfo(ctx.packageName,0).versionName ?: "0.0.0" } catch(_:Exception) { "0.0.0" }
-    val colors=if(settings.dark) darkColorScheme(primary=Color(0xFF0A84FF),background=Color(0xFF0B0F17),surface=Color(0xFF151922)) else lightColorScheme(primary=Color(0xFF007AFF),background=Color(0xFFF4F5F7),surface=Color.White)
     val lang = settings.language
     fun tx(key:String)=tr(lang,key)
     fun autoCloudSync(rs:List<PhoneNumberRecord>, st:App设置){
-        if(st.cloudEnabled && st.cloudAutoSync && cleanCloudApiKey(st.cloudApiKey).isNotBlank() && rs.isNotEmpty()){
+        if(st.cloudEnabled && st.cloudAutoSync && st.cloudToken.isNotBlank() && cleanCloudApiKey(st.cloudApiKey).isNotBlank() && rs.isNotEmpty()){
             cloudGet(st,"/api/sync"){ok,msg->
                 if(ok || msg.contains("404") || msg.contains("暂无") || msg.contains("no cloud data",true)){
-                    val (cloudRecords,cloudSettings)=if(ok) parseCloudPayloadResponse(msg) else Pair(emptyList<PhoneNumberRecord>(),null)
+                    val (cloudRecords,cloudSettings)=if(ok) parseCloudPayloadResponse(msg,st) else Pair(emptyList<PhoneNumberRecord>(),null)
                     val merged=mergeRecords(cloudRecords,rs)
                     val mergedSettings=mergeCloudSettings(st,cloudSettings)
-                    cloudPost(mergedSettings,"/api/sync",cloudPayload(merged,mergedSettings)){okSync,_-> if(okSync) cloudPost(mergedSettings,"/api/check-now",cloudPayload(merged,mergedSettings)){_,_->} }
+                    cloudPost(mergedSettings,"/api/sync",cloudEncryptedPayload(merged,mergedSettings)){_,_->}
                 }
             }
         }
@@ -298,7 +412,7 @@ class MainActivity: ComponentActivity(){ private val req=registerForActivityResu
         DataStore.saveRecords(ctx,records)
         autoCloudSync(records,settings)
     }
-    MaterialTheme(colors){
+    SimJMaterialTheme(settings.dark){
     LaunchedEffect(Unit) {
         val now = System.currentTimeMillis()
         val prefs = ctx.getSharedPreferences("update_prefs",0)
@@ -325,8 +439,30 @@ class MainActivity: ComponentActivity(){ private val req=registerForActivityResu
                     edit=null
                 })
             } else {
-                Column(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)){
-                    if (screen != "esim") {
+                Scaffold(
+                    modifier=Modifier.fillMaxSize(),
+                    containerColor=MaterialTheme.colorScheme.background,
+                    bottomBar={ SimHubBottomNav(screen){ screen=it } },
+                    floatingActionButton={ if(screen=="home") ExpressiveAddFab{ edit=PhoneNumberRecord() } }
+                ){ innerPadding ->
+                val layoutDirection = LocalLayoutDirection.current
+                val contentModifier = if (screen == "home") {
+                    Modifier
+                        .fillMaxSize()
+                        .padding(
+                            start = innerPadding.calculateStartPadding(layoutDirection),
+                            end = innerPadding.calculateEndPadding(layoutDirection),
+                            bottom = innerPadding.calculateBottomPadding()
+                        )
+                        .background(MaterialTheme.colorScheme.background)
+                } else {
+                    Modifier
+                        .fillMaxSize()
+                        .padding(innerPadding)
+                        .background(MaterialTheme.colorScheme.background)
+                }
+                Column(contentModifier){
+                    if (screen != "home" && screen != "esim" && screen != "map") {
                         SimHubTopBar(screen,settings.dark,{ settings=settings.copy(dark=!settings.dark); DataStore.save设置(ctx,settings) },search,{ search=it }){ target->
                             when(target){
                                 "add" -> edit=PhoneNumberRecord()
@@ -338,7 +474,7 @@ class MainActivity: ComponentActivity(){ private val req=registerForActivityResu
                     }
                     Box(Modifier.weight(1f).fillMaxWidth()){
                         when(screen){
-                            "home"->Home(ctx,records,settings,search,filter,sortMode,{filter=it},{sortMode=when(sortMode){"自定义"->"到期近";"到期近"->"到期远";else->"自定义"}},{edit=PhoneNumberRecord()},{edit=it},{r->records=records.filter{it.id!=r.id};DataStore.saveRecords(ctx,records); autoCloudSync(records,settings)},{dial(ctx,it)},{trafficTarget=it},{r,months->val nr=r.copy(expireDate=(runCatching{LocalDate.parse(r.expireDate)}.getOrNull()?:LocalDate.now()).plusDays(months.toLong()).toString());records=records.map{if(it.id==r.id)nr else it};DataStore.saveRecords(ctx,records); autoCloudSync(records,settings)},{ids->reorderRecordsById(ids)})
+                            "home"->Home(ctx,records,settings,search,{search=it},filter,sortMode,{filter=it},{sortMode=it},{edit=PhoneNumberRecord()},{edit=it},{r->records=records.filter{it.id!=r.id};DataStore.saveRecords(ctx,records); autoCloudSync(records,settings)},{dial(ctx,it)},{trafficTarget=it},{r,months->val nr=r.copy(expireDate=(runCatching{LocalDate.parse(r.expireDate)}.getOrNull()?:LocalDate.now()).plusDays(months.toLong()).toString());records=records.map{if(it.id==r.id)nr else it};DataStore.saveRecords(ctx,records); autoCloudSync(records,settings)},{ids->reorderRecordsById(ids)})
                             "keep"->KeepPage(records,{r,m-> val nr=r.copy(expireDate=(runCatching{LocalDate.parse(r.expireDate)}.getOrNull()?:LocalDate.now()).plusDays(m.toLong()).toString()); records=records.map{if(it.id==r.id)nr else it}; DataStore.saveRecords(ctx,records); autoCloudSync(records,settings)})
                             "tools"->ToolsPage(ctx,settings,records,{trafficTarget=it},{dial(ctx,it)},{ exportDialog="json" to exportRecordsJson(records,settings) },{ exportDialog="csv" to exportRecordsCsv(records) },{ text-> val (imported,importedSettings)=parseRecordsAndSettings(text); if(imported.isNotEmpty()){ records=imported; DataStore.saveRecords(ctx,records); if(importedSettings!=null){ settings=importedSettings; DataStore.save设置(ctx,settings) }; autoCloudSync(records,settings); toolMessage=tx("导入完成")+"：${records.size} "+tx("个号码")+(if(importedSettings!=null) " + "+tx("配置已恢复") else "") } else toolMessage=tx("导入失败：未识别 JSON/CSV 数据") })
                             "settings"->{
@@ -351,10 +487,11 @@ class MainActivity: ComponentActivity(){ private val req=registerForActivityResu
                             }
                             "countries"->CountryPage()
                             "esim"->EsimScreen()
+                            "map"->SimMapPage(records){ edit=it }
                         }
                         updateInfo?.let { info -> UpdateDialog(currentVersion = currentVersion, updateInfo = info, onDismiss = { updateInfo = null }) }
                     }
-                    SimHubBottomNav(screen){ screen=it }
+                }
                 }
             }
         }
@@ -409,88 +546,302 @@ fun shareExportFile(ctx:Context,fileName:String,mime:String,content:String,title
 
 
 
-@Composable fun SimHubTopBar(screen:String,dark:Boolean,onToggleDark:()->Unit,search:String,onSearch:(String)->Unit,on:(String)->Unit){
-    val bg=if(dark) Color(0xFF0B0F17) else Color(0xFFF4F6FA)
-    val surface=if(dark) Color(0xFF151922) else Color.White
+@Composable fun ExpressiveSimHubTopBar(screen:String,dark:Boolean,onToggleDark:()->Unit,search:String,onSearch:(String)->Unit,on:(String)->Unit){
+    val scheme=MaterialTheme.colorScheme
     val statusBarTop = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
-    Column(Modifier.fillMaxWidth().background(bg).padding(start=18.dp,end=18.dp,top=statusBarTop+8.dp,bottom=6.dp)){
+    val home = screen=="home"
+    val container = if(home) scheme.primaryContainer else scheme.surfaceContainerHigh
+    val content = if(home) scheme.onPrimaryContainer else scheme.onSurface
+    val topBrush = if(home) Brush.linearGradient(listOf(scheme.primaryContainer,scheme.secondaryContainer,scheme.tertiaryContainer.copy(alpha=.72f))) else Brush.verticalGradient(listOf(scheme.surfaceContainerHigh,scheme.surfaceContainer))
+    Surface(
+        modifier=Modifier.fillMaxWidth(),
+        color=container,
+        contentColor=content,
+        tonalElevation=4.dp,
+        shadowElevation=1.dp,
+        shape=RoundedCornerShape(bottomStart=28.dp,bottomEnd=28.dp)
+    ){
+        Column(
+            Modifier
+                .fillMaxWidth()
+                .background(topBrush)
+                .padding(start=20.dp,end=20.dp,top=10.dp,bottom=10.dp),
+            verticalArrangement=Arrangement.spacedBy(8.dp)
+        ){
+            Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(10.dp)){
+                Column(Modifier.weight(1f),verticalArrangement=Arrangement.spacedBy(0.dp)){
+                    Text(if(home) "simJ" else when(screen){"tools"->"Tools";"settings"->"Settings";"esim"->"eSIM";else->"SIM"},style=MaterialTheme.typography.titleLarge,color=content,maxLines=1,overflow=TextOverflow.Ellipsis)
+                    Text(when(screen){"home"->"SIM 号码库";"tools"->"常用工具";"settings"->"外观";"esim"->"eSIM 管理";else->"号码"},style=MaterialTheme.typography.labelMedium,color=content.copy(alpha=.68f),maxLines=1,overflow=TextOverflow.Ellipsis)
+                }
+                if(home){
+                    FilledTonalIconButton(onClick={on("grid")},shape=RoundedCornerShape(18.dp),colors=IconButtonDefaults.filledTonalIconButtonColors(containerColor=scheme.secondaryContainer,contentColor=scheme.onSecondaryContainer)){
+                        Icon(Icons.Rounded.Public,contentDescription=null)
+                    }
+                }
+                FilledTonalIconButton(onClick=onToggleDark,shape=RoundedCornerShape(18.dp),colors=IconButtonDefaults.filledTonalIconButtonColors(containerColor=scheme.surface.copy(alpha=.72f),contentColor=content)){
+                    Icon(if(dark) Icons.Rounded.LightMode else Icons.Rounded.DarkMode,contentDescription=null)
+                }
+            }
+            if(false && home){
+                TextField(
+                    value=search,
+                    onValueChange=onSearch,
+                    modifier=Modifier.fillMaxWidth().height(48.dp),
+                    singleLine=true,
+                    shape=RoundedCornerShape(23.dp),
+                    placeholder={Text("搜索运营商、国家或号码",maxLines=1,overflow=TextOverflow.Ellipsis)},
+                    leadingIcon={Icon(Icons.Rounded.Search,contentDescription=null)},
+                    trailingIcon={ if(search.isNotBlank()) TextButton(onClick={onSearch("")}){Text("Clear")} },
+                    textStyle=MaterialTheme.typography.bodyLarge,
+                    colors=TextFieldDefaults.colors(
+                        focusedContainerColor=scheme.surface,
+                        unfocusedContainerColor=scheme.surface.copy(alpha=.92f),
+                        focusedIndicatorColor=Color.Transparent,
+                        unfocusedIndicatorColor=Color.Transparent,
+                        cursorColor=scheme.primary,
+                        focusedTextColor=scheme.onSurface,
+                        unfocusedTextColor=scheme.onSurface,
+                        focusedLeadingIconColor=scheme.primary,
+                        unfocusedLeadingIconColor=scheme.onSurfaceVariant,
+                        focusedPlaceholderColor=scheme.onSurfaceVariant,
+                        unfocusedPlaceholderColor=scheme.onSurfaceVariant
+                    )
+                )
+            }
+        }
+    }
+}
+
+@Composable fun ExpressiveAddFab(onClick:()->Unit){
+    ExtendedFloatingActionButton(
+        onClick=onClick,
+        icon={Icon(Icons.Rounded.Add,contentDescription=null)},
+        text={Text("添加 SIM",fontWeight=FontWeight.Bold)},
+        shape=RoundedCornerShape(26.dp),
+        containerColor=MaterialTheme.colorScheme.tertiaryContainer,
+        contentColor=MaterialTheme.colorScheme.onTertiaryContainer,
+        expanded=true
+    )
+}
+
+@Composable fun SimHubTopBar(screen:String,dark:Boolean,onToggleDark:()->Unit,search:String,onSearch:(String)->Unit,on:(String)->Unit){
+    ExpressiveSimHubTopBar(screen,dark,onToggleDark,search,onSearch,on)
+    return
+    val scheme=MaterialTheme.colorScheme
+    val statusBarTop = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .background(scheme.surface)
+            .padding(start=20.dp,end=20.dp,top=statusBarTop+12.dp,bottom=10.dp),
+        verticalArrangement=Arrangement.spacedBy(10.dp)
+    ){
+        Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically){
+            Column(Modifier.weight(1f),verticalArrangement=Arrangement.spacedBy(1.dp)){
+                Text(if(screen=="home") "simJ" else when(screen){"tools"->L("工具");"settings"->L("设置");"esim"->"eSIM";else->L("号码")},style=MaterialTheme.typography.titleLarge,color=scheme.onSurface)
+                Text(when(screen){"home"->L("号码");"tools"->L("常用工具");"settings"->L("外观");"esim"->L("eSIM 管理");else->L("号码")},style=MaterialTheme.typography.labelMedium,color=scheme.onSurfaceVariant)
+            }
+            IconCircle(if(dark) "☀" else "☾",onToggleDark)
+        }
         if(screen=="home"){
-            // search bar + dark mode toggle on same row
-            Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(8.dp)){
-                TextField(value=search,onValueChange=onSearch,modifier=Modifier.weight(1f).heightIn(min=36.dp).clip(RoundedCornerShape(12.dp)),singleLine=true,
+            TextField(value=search,onValueChange=onSearch,modifier=Modifier.fillMaxWidth().heightIn(min=52.dp),singleLine=true,shape=RoundedCornerShape(28.dp),
                     placeholder={Text(L("搜索运营商、国家或号码"),fontSize=13.sp,color=Color(0xFF8E8E93),maxLines=1,overflow=TextOverflow.Ellipsis)},leadingIcon={Canvas(Modifier.size(16.dp)){drawCircle(Color(0xFF8E8E93),radius=size.width/2-1.dp.toPx(),style=Stroke(1.5.dp.toPx()));drawLine(Color(0xFF8E8E93),Offset(size.width*.65f,size.height*.65f),Offset(size.width*.85f,size.height*.85f),strokeWidth=1.5.dp.toPx())}},
-                    colors=TextFieldDefaults.colors(focusedContainerColor=surface,unfocusedContainerColor=surface,focusedIndicatorColor=Color.Transparent,unfocusedIndicatorColor=Color.Transparent))
-                IconCircle(if(dark) "M" else "S",onToggleDark)
-            }
-        }else{
-            Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically){
-                Text(when(screen){"tools"->L("工具");"settings"->L("设置");"esim"->"eSIM";else->L("号码")},fontSize=26.sp,fontWeight=FontWeight.Bold,modifier=Modifier.weight(1f),color=if(dark) Color.White else Color(0xFF111827))
-            }
+                    colors=TextFieldDefaults.colors(focusedContainerColor=scheme.surfaceContainerHigh,unfocusedContainerColor=scheme.surfaceContainerHigh,focusedIndicatorColor=Color.Transparent,unfocusedIndicatorColor=Color.Transparent,cursorColor=scheme.primary,focusedTextColor=scheme.onSurface,unfocusedTextColor=scheme.onSurface,focusedPlaceholderColor=scheme.onSurfaceVariant,unfocusedPlaceholderColor=scheme.onSurfaceVariant))
         }
     }
 }
 
 @Composable fun IconCircle(text:String,onClick:()->Unit){
-    Box(Modifier.size(34.dp).clip(RoundedCornerShape(17.dp)).background(Color.White.copy(alpha=.92f)).border(.6.dp,Color(0xFFE5E7EB),RoundedCornerShape(17.dp)).clickable{onClick()},contentAlignment=Alignment.Center){Text(text,fontSize=15.sp,fontWeight=FontWeight.SemiBold,color=Color(0xFF374151))}
+    val scheme=MaterialTheme.colorScheme
+    Box(Modifier.size(42.dp).clip(RoundedCornerShape(21.dp)).background(scheme.secondaryContainer).border(.8.dp,scheme.outlineVariant.copy(alpha=.55f),RoundedCornerShape(21.dp)).motionClickable{onClick()},contentAlignment=Alignment.Center){Text(text,fontSize=17.sp,fontWeight=FontWeight.SemiBold,color=scheme.onSecondaryContainer)}
 }
 
-@Composable fun FilterToolRow(filter:String,sortMode:String,onFilter:(String)->Unit,onSort:()->Unit,count:Int){
-    Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.Center,verticalAlignment=Alignment.CenterVertically){
-        Row(horizontalArrangement=Arrangement.spacedBy(6.dp),verticalAlignment=Alignment.CenterVertically){
-            FilterTool("≡",filter,Modifier.height(30.dp)){onFilter(when(filter){"全部"->"正常";"正常"->"即将到期";"即将到期"->"已过期";else->"全部"})}
-            FilterTool("↕",when(sortMode){"自定义"->"自定义";"到期近"->L("近到远");else->L("远到近")},Modifier.height(30.dp)){onSort()}
-            Box(Modifier.height(30.dp).clip(RoundedCornerShape(10.dp)).background(Color(0xFF93C5FD).copy(alpha=.25f)).clickable{}.padding(horizontal=10.dp),contentAlignment=Alignment.Center){Text("$count",fontSize=12.sp,fontWeight=FontWeight.Bold,color=Color(0xFF3B82F6))}
+@Composable fun ExpressiveFilterToolRow(filter:String,sortMode:String,onFilter:(String)->Unit,onSort:()->Unit,count:Int){
+    val scheme=MaterialTheme.colorScheme
+    Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(8.dp),verticalAlignment=Alignment.CenterVertically){
+        FilterChip(
+            selected=filter!="全部",
+            onClick={onFilter(when(filter){"全部"->"正常";"正常"->"即将到期";"即将到期"->"已过期";else->"全部"})},
+            label={Text(filter,maxLines=1,overflow=TextOverflow.Ellipsis)},
+            leadingIcon={Text("≡",fontWeight=FontWeight.Bold)},
+            shape=RoundedCornerShape(18.dp),
+            colors=FilterChipDefaults.filterChipColors(containerColor=scheme.surfaceContainerHigh,labelColor=scheme.onSurface,iconColor=scheme.primary,selectedContainerColor=scheme.primaryContainer,selectedLabelColor=scheme.onPrimaryContainer,selectedLeadingIconColor=scheme.onPrimaryContainer)
+        )
+        FilterChip(
+            selected=sortMode!="自定义",
+            onClick=onSort,
+            label={Text(when(sortMode){"自定义"->"自定义";"到期近"->"近到远";else->"远到近"},maxLines=1,overflow=TextOverflow.Ellipsis)},
+            leadingIcon={Text("↕",fontWeight=FontWeight.Bold)},
+            shape=RoundedCornerShape(18.dp),
+            colors=FilterChipDefaults.filterChipColors(containerColor=scheme.surfaceContainerHigh,labelColor=scheme.onSurface,iconColor=scheme.secondary,selectedContainerColor=scheme.secondaryContainer,selectedLabelColor=scheme.onSecondaryContainer,selectedLeadingIconColor=scheme.onSecondaryContainer)
+        )
+        Spacer(Modifier.weight(1f))
+        Surface(shape=RoundedCornerShape(18.dp),color=scheme.tertiaryContainer,contentColor=scheme.onTertiaryContainer,tonalElevation=2.dp){
+            Text(count.toString(),style=MaterialTheme.typography.labelLarge,modifier=Modifier.padding(horizontal=14.dp,vertical=8.dp))
         }
     }
 }
 
+@Composable fun FilterToolRow(filter:String,sortMode:String,onFilter:(String)->Unit,onSort:()->Unit,count:Int){
+    ExpressiveFilterToolRow(filter,sortMode,onFilter,onSort,count)
+    return
+    Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.SpaceBetween,verticalAlignment=Alignment.CenterVertically){
+        Row(horizontalArrangement=Arrangement.spacedBy(8.dp),verticalAlignment=Alignment.CenterVertically){
+            FilterTool("≡",filter,Modifier.height(30.dp)){onFilter(when(filter){"全部"->"正常";"正常"->"即将到期";"即将到期"->"已过期";else->"全部"})}
+            FilterTool("↕",when(sortMode){"自定义"->"自定义";"到期近"->L("近到远");else->L("远到近")},Modifier.height(30.dp)){onSort()}
+        }
+        val scheme=MaterialTheme.colorScheme
+        Box(Modifier.height(32.dp).clip(RoundedCornerShape(16.dp)).background(scheme.tertiaryContainer).padding(horizontal=12.dp),contentAlignment=Alignment.Center){Text("$count",fontSize=12.sp,fontWeight=FontWeight.Bold,color=scheme.onTertiaryContainer)}
+    }
+}
+
 @Composable fun FilterTool(icon:String,text:String,m:Modifier,onClick:()->Unit){
-    Row(m.height(30.dp).clip(RoundedCornerShape(10.dp)).background(Color(0xFF3B82F6)).clickable{onClick()}.padding(horizontal=10.dp),verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.Center){Text(icon,fontSize=11.sp,color=Color.White);Spacer(Modifier.width(4.dp));Text(text,fontSize=11.sp,fontWeight=FontWeight.SemiBold,color=Color.White,maxLines=1)}
+    val scheme=MaterialTheme.colorScheme
+    Row(m.height(32.dp).clip(RoundedCornerShape(16.dp)).background(scheme.primaryContainer).motionClickable{onClick()}.padding(horizontal=12.dp),verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.Center){Text(icon,fontSize=12.sp,color=scheme.onPrimaryContainer);Spacer(Modifier.width(5.dp));Text(text,fontSize=12.sp,fontWeight=FontWeight.SemiBold,color=scheme.onPrimaryContainer,maxLines=1)}
 }
 
 
+@Composable fun ExpressiveSimCard(r:PhoneNumberRecord,onEdit:(PhoneNumberRecord)->Unit,onDel:(PhoneNumberRecord)->Unit,onTraffic:(PhoneNumberRecord)->Unit,onKeep:(PhoneNumberRecord,Int)->Unit,days:Long?,remindDays:Int,sorting:Boolean=false,onStartSort:()->Unit={},dragModifier:Modifier=Modifier,isDragging:Boolean=false,showFlag:Boolean=true,bankCardStyle:Boolean=false){
+    val scheme=MaterialTheme.colorScheme
+    val countryIso=countryIsoFor(r.countryCode,r.countryName)
+    val palette=flagPaletteFor(countryIso,r.countryCode,r.countryName)
+    val editActionColor=usableFlagActionColor(palette.primary,palette.secondary)
+    val keepActionColor=usableFlagActionColor(palette.primary,palette.secondary)
+    val trafficActionColor=usableFlagActionColor(palette.secondary,palette.primary)
+    val decorated=showFlag || bankCardStyle
+    val progress=when{days==null->.28f; days<0->.05f; else->(days.coerceIn(0,120).toFloat()/120f).coerceIn(.08f,.98f)}
+    val statusContainer=when{days==null->scheme.surfaceVariant; days<0->scheme.errorContainer; days<=remindDays->palette.secondary.copy(alpha=.18f); else->palette.soft}
+    val statusContent=when{days==null->scheme.onSurfaceVariant; days<0->scheme.onErrorContainer; else->palette.primary}
+    val statusText=when{days==null->"无到期"; days<0->"已过期 ${-days} 天"; days<=remindDays->"${days} 天后到期"; else->"剩余 ${days} 天"}
+    var hidden by remember{ mutableStateOf(true) }
+    var del by remember{ mutableStateOf(false) }
+    var keep by remember{ mutableStateOf(false) }
+    var menu by remember{ mutableStateOf(false) }
+    val clipboardManager = LocalClipboardManager.current
+    ElevatedCard(
+        shape=RoundedCornerShape(topStart=34.dp,topEnd=20.dp,bottomStart=22.dp,bottomEnd=34.dp),
+        colors=CardDefaults.elevatedCardColors(containerColor=if(decorated) Color.Transparent else scheme.surfaceContainerLow),
+        elevation=CardDefaults.elevatedCardElevation(defaultElevation=if(isDragging)10.dp else 2.dp),
+        modifier=Modifier
+            .fillMaxWidth()
+            .graphicsLayer{ scaleX=if(isDragging)1.018f else 1f; scaleY=if(isDragging)1.018f else 1f }
+            .then(if(sorting) dragModifier else Modifier)
+    ){
+        Box(Modifier.fillMaxWidth()){
+            if(decorated){
+                FlagArtPanel(r,Modifier.matchParentSize(),bankCardStyle)
+                Box(Modifier.matchParentSize().background(Brush.linearGradient(listOf(Color.White.copy(alpha=.38f),palette.soft.copy(alpha=.54f),palette.primary.copy(alpha=.20f),palette.secondary.copy(alpha=.20f)))))
+                Box(Modifier.matchParentSize().background(Brush.verticalGradient(listOf(Color.White.copy(alpha=.10f),Color.Transparent,Color.Black.copy(alpha=.08f)))))
+            }
+        Column(Modifier.padding(12.dp),verticalArrangement=Arrangement.spacedBy(12.dp)){
+            ListItem(
+                colors=ListItemDefaults.colors(containerColor=Color.Transparent),
+                leadingContent={
+                    Box(Modifier.size(62.dp),contentAlignment=Alignment.Center){
+                        OperatorLogo44(r.operator.ifBlank{r.countryName}, Countries.list.firstOrNull{it.code==r.countryCode && it.name==r.countryName}?.iso ?: Countries.list.firstOrNull{it.code==r.countryCode}?.iso)
+                    }
+                },
+                overlineContent={Text(r.countryName.ifBlank{r.countryCode},style=MaterialTheme.typography.labelMedium,color=palette.primary,maxLines=1,overflow=TextOverflow.Ellipsis)},
+                headlineContent={Text(r.operator.ifBlank{r.countryName},style=MaterialTheme.typography.titleLarge,color=scheme.onSurface,maxLines=1,overflow=TextOverflow.Ellipsis)},
+                supportingContent={Text(planLine(r).ifBlank{"预付费 SIM"},style=MaterialTheme.typography.bodyMedium,color=scheme.onSurfaceVariant,maxLines=1,overflow=TextOverflow.Ellipsis)},
+                trailingContent={
+                    if(sorting){
+                        Icon(Icons.Rounded.DragIndicator,contentDescription=null,tint=scheme.onSurfaceVariant)
+                    }else{
+                        Box{
+                            IconButton(onClick={menu=true},modifier=Modifier.size(42.dp)){Icon(Icons.Rounded.MoreVert,contentDescription=null)}
+                            DropdownMenu(expanded=menu,onDismissRequest={menu=false}){
+                                DropdownMenuItem(text={Text("编辑")},leadingIcon={Icon(Icons.Rounded.Edit,contentDescription=null)},onClick={menu=false;onEdit(r)})
+                                DropdownMenuItem(text={Text("复制号码")},leadingIcon={Icon(Icons.Rounded.ContentCopy,contentDescription=null)},onClick={menu=false;clipboardManager.setText(AnnotatedString(r.number))})
+                                DropdownMenuItem(text={Text("排序")},leadingIcon={Icon(Icons.Rounded.DragIndicator,contentDescription=null)},onClick={menu=false;onStartSort()})
+                                DropdownMenuItem(text={Text("删除")},leadingIcon={Icon(Icons.Rounded.Delete,contentDescription=null)},onClick={menu=false;del=true})
+                            }
+                        }
+                    }
+                }
+            )
+            Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(8.dp),verticalAlignment=Alignment.CenterVertically){
+                AssistChip(onClick={},label={Text(statusText,maxLines=1)},colors=AssistChipDefaults.assistChipColors(containerColor=statusContainer,labelColor=statusContent),border=null)
+                AssistChip(onClick={},label={Text(r.balance.ifBlank{estimateBalance(r)},maxLines=1,overflow=TextOverflow.Ellipsis)},colors=AssistChipDefaults.assistChipColors(containerColor=palette.soft.copy(alpha=.82f),labelColor=palette.ink),border=null)
+            }
+            Surface(shape=RoundedCornerShape(24.dp),color=Color.White.copy(alpha=if(decorated) .58f else .92f),contentColor=palette.ink,modifier=Modifier.fillMaxWidth().border(1.dp,palette.primary.copy(alpha=.10f),RoundedCornerShape(24.dp))){
+                Row(Modifier.padding(horizontal=14.dp,vertical=12.dp),verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(10.dp)){
+                    Text("${r.countryCode} ${if(hidden) "---- ${r.number.takeLast(4)}" else formatNumber(r.number)}",style=MaterialTheme.typography.titleMedium,color=palette.ink,maxLines=1,overflow=TextOverflow.Ellipsis,modifier=Modifier.weight(1f))
+                    IconButton(onClick={hidden=!hidden},modifier=Modifier.size(38.dp)){Icon(if(hidden) Icons.Rounded.Visibility else Icons.Rounded.VisibilityOff,contentDescription=null,tint=palette.primary)}
+                }
+            }
+            FlagProgressBar(
+                progress=progress,
+                palette=palette,
+                expired=days!=null && days<0,
+                warning=days!=null && days<=remindDays,
+                modifier=Modifier.fillMaxWidth()
+            )
+            Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(8.dp),verticalAlignment=Alignment.CenterVertically){
+                FilledTonalIconButton(onClick={onEdit(r)},shape=RoundedCornerShape(18.dp),colors=IconButtonDefaults.filledTonalIconButtonColors(containerColor=editActionColor,contentColor=readableOnFlagColor(editActionColor))){Icon(Icons.Rounded.Edit,contentDescription=null)}
+                FilledTonalButton(onClick={keep=true},shape=RoundedCornerShape(18.dp),modifier=Modifier.weight(1f),colors=ButtonDefaults.filledTonalButtonColors(containerColor=keepActionColor,contentColor=readableOnFlagColor(keepActionColor))){Icon(Icons.Rounded.Refresh,contentDescription=null);Spacer(Modifier.width(6.dp));Text("保号")}
+                FilledTonalButton(onClick={onTraffic(r)},shape=RoundedCornerShape(18.dp),modifier=Modifier.weight(1f),colors=ButtonDefaults.filledTonalButtonColors(containerColor=trafficActionColor,contentColor=readableOnFlagColor(trafficActionColor))){Icon(Icons.Rounded.Phone,contentDescription=null);Spacer(Modifier.width(6.dp));Text("流量")}
+                IconButton(onClick={del=true},modifier=Modifier.size(48.dp)){Icon(Icons.Rounded.Delete,contentDescription=null,tint=scheme.error)}
+            }
+        }
+    }
+    }
+    if(keep) KeepCycleDialog(r,onKeep){keep=false}
+    if(del) IOSConfirmDialog("删除 SIM？","删除 ${r.countryCode} ${formatNumber(r.number)} 后不可恢复。",true,{del=false},{del=false;onDel(r)})
+}
+
 @OptIn(ExperimentalFoundationApi::class)
 @Composable fun CompactSimCard(r:PhoneNumberRecord,on编辑:(PhoneNumberRecord)->Unit,onDel:(PhoneNumberRecord)->Unit,onTraffic:(PhoneNumberRecord)->Unit,onKeep:(PhoneNumberRecord,Int)->Unit,days:Long?,remindDays:Int,showFlag:Boolean=true,dark:Boolean=false,bankCardStyle:Boolean=false,sorting:Boolean=false,onStartSort:()->Unit={},dragModifier:Modifier=Modifier,isDragging:Boolean=false){
+    ExpressiveSimCard(r,on编辑,onDel,onTraffic,onKeep,days,remindDays,sorting,onStartSort,dragModifier,isDragging,showFlag,bankCardStyle)
+    return
     val progress=when{days==null->.35f; days<0->.04f; else->(days.coerceIn(0,120).toFloat()/120f).coerceIn(.08f,.98f)}
     var hidden by remember{ mutableStateOf(true) }
     var del by remember{ mutableStateOf(false) }
     var keep by remember{ mutableStateOf(false) }
     var showMenu by remember{ mutableStateOf(false) }
-    val cardBg=if(dark) Color(0xFF1E2430).copy(alpha=.85f) else Color.White.copy(alpha=.35f); val cardBorder=if(dark) Color(0xFF2A3040).copy(alpha=.60f) else Color.White.copy(alpha=.50f); val txtPrimary=if(dark) Color(0xFFE8EAED) else if(showFlag) Color.White else Color(0xFF111827); val txtSecondary=if(dark) Color(0xFF9AA0A6) else if(showFlag) Color.White.copy(alpha=.85f) else Color(0xFF6B7280); val txtBody=if(dark) Color(0xFFD1D5DB) else if(showFlag) Color.White.copy(alpha=.9f) else Color(0xFF374151)
+    val scheme=MaterialTheme.colorScheme
+    val decorated=showFlag || bankCardStyle
+    val cardBg=if(decorated) scheme.surface.copy(alpha=if(dark) .42f else .36f) else scheme.surfaceContainerHigh
+    val cardBorder=if(decorated) scheme.outlineVariant.copy(alpha=.48f) else scheme.outlineVariant.copy(alpha=.80f)
+    val txtPrimary=if(decorated) Color.White else scheme.onSurface
+    val txtSecondary=if(decorated) Color.White.copy(alpha=.82f) else scheme.onSurfaceVariant
+    val txtBody=if(decorated) Color.White.copy(alpha=.9f) else scheme.onSurfaceVariant
+    val accent=scheme.primary
+    val success=Color(0xFF34A853)
     val clipboardManager = LocalClipboardManager.current
-    Card(shape=RoundedCornerShape(24.dp),colors=CardDefaults.cardColors(containerColor=cardBg),elevation=CardDefaults.cardElevation(0.dp),modifier=Modifier.fillMaxWidth().then(if(bankCardStyle) Modifier.aspectRatio(1.60f) else Modifier.height(150.dp)).graphicsLayer{ scaleX=if(isDragging) 1.025f else 1f; scaleY=if(isDragging) 1.025f else 1f; shadowElevation=if(isDragging) 22f else 0f }.border(1.dp,cardBorder,RoundedCornerShape(24.dp)).then(if(sorting) dragModifier else Modifier.combinedClickable(onClick={},onLongClick={showMenu=true}))){
+    Card(shape=RoundedCornerShape(28.dp),colors=CardDefaults.cardColors(containerColor=cardBg),elevation=CardDefaults.cardElevation(if(isDragging) 10.dp else 1.5.dp),modifier=Modifier.fillMaxWidth().then(if(bankCardStyle) Modifier.aspectRatio(1.60f) else Modifier.height(156.dp)).graphicsLayer{ scaleX=if(isDragging) 1.025f else 1f; scaleY=if(isDragging) 1.025f else 1f; shadowElevation=if(isDragging) 22f else 0f }.border(1.dp,cardBorder,RoundedCornerShape(28.dp)).then(if(sorting) dragModifier else Modifier.combinedClickable(onClick={},onLongClick={showMenu=true}))){
         Box(Modifier.fillMaxSize()){
-            // frosted glass shimmer
-            val glass=if(dark) listOf(Color(0xFF1E2430).copy(alpha=.15f),Color(0xFF1E2430).copy(alpha=.06f),Color(0xFF1E2430).copy(alpha=.12f)) else listOf(Color.White.copy(alpha=.18f),Color.White.copy(alpha=.08f),Color.White.copy(alpha=.15f)); Box(Modifier.fillMaxSize().background(Brush.verticalGradient(glass)).clip(RoundedCornerShape(24.dp)))
+            val glass=if(decorated) listOf(Color.White.copy(alpha=.18f),Color.White.copy(alpha=.07f),Color.Black.copy(alpha=.10f)) else listOf(scheme.surfaceContainerHigh,scheme.surfaceContainer,scheme.surfaceContainerHigh)
+            Box(Modifier.fillMaxSize().background(Brush.verticalGradient(glass)).clip(RoundedCornerShape(28.dp)))
             if(showFlag || bankCardStyle){
                 FlagArtPanel(r,Modifier.fillMaxSize(),bankCardStyle)
-            Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha=0.3f)))
+            Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Color.Black.copy(alpha=.16f),Color.Black.copy(alpha=.34f)))))
             }
-            Column(Modifier.fillMaxSize().padding(start=10.dp,end=10.dp,top=7.dp,bottom=6.dp),verticalArrangement=Arrangement.SpaceBetween){
+            Column(Modifier.fillMaxSize().padding(start=12.dp,end=12.dp,top=9.dp,bottom=8.dp),verticalArrangement=Arrangement.SpaceBetween){
                 Row(verticalAlignment=Alignment.CenterVertically){
                     OperatorLogo44(r.operator.ifBlank{r.countryName}, Countries.list.firstOrNull{it.code==r.countryCode && it.name==r.countryName}?.iso ?: Countries.list.firstOrNull{it.code==r.countryCode}?.iso)
                     Spacer(Modifier.width(8.dp))
                     Text(r.operator.ifBlank{r.countryName},fontSize=16.sp,fontWeight=FontWeight.Bold,color=txtPrimary,maxLines=1,overflow=TextOverflow.Ellipsis,modifier=Modifier.weight(1f))
-                    if(r.longTerm) Text("Long-term",fontSize=9.sp,fontWeight=FontWeight.Bold,color=Color.White,modifier=Modifier.clip(RoundedCornerShape(999.dp)).background(Color(0xFF34C759)).padding(horizontal=6.dp,vertical=2.dp))
-                    else Text("∞",fontSize=11.sp,fontWeight=FontWeight.Bold,color=Color.White,modifier=Modifier.clip(RoundedCornerShape(999.dp)).background(Color(0xFF007AFF)).padding(horizontal=6.dp,vertical=2.dp))
+                    if(r.longTerm) Text("Long-term",fontSize=9.sp,fontWeight=FontWeight.Bold,color=scheme.onSecondaryContainer,modifier=Modifier.clip(RoundedCornerShape(999.dp)).background(scheme.secondaryContainer).padding(horizontal=7.dp,vertical=3.dp))
+                    else Text("∞",fontSize=11.sp,fontWeight=FontWeight.Bold,color=scheme.onPrimaryContainer,modifier=Modifier.clip(RoundedCornerShape(999.dp)).background(scheme.primaryContainer).padding(horizontal=7.dp,vertical=3.dp))
                     Spacer(Modifier.width(5.dp))
                     Text(r.countryName,fontSize=12.sp,color=txtSecondary,maxLines=1,overflow=TextOverflow.Ellipsis,modifier=Modifier.widthIn(max=72.dp))
                     if(sorting){ Spacer(Modifier.width(6.dp)); Text("≡",fontSize=20.sp,fontWeight=FontWeight.Bold,color=txtSecondary) }
                 }
                 Row(verticalAlignment=Alignment.CenterVertically){
                     Text(planLine(r)+" · ",fontSize=12.sp,color=txtBody,maxLines=1,overflow=TextOverflow.Ellipsis)
-                    Box(Modifier.size(13.dp).clip(RoundedCornerShape(99.dp)).background(Color(0xFF22C55E)),contentAlignment=Alignment.Center){Text("✓",fontSize=8.sp,color=Color.White)}
+                    Box(Modifier.size(14.dp).clip(RoundedCornerShape(99.dp)).background(success),contentAlignment=Alignment.Center){Text("✓",fontSize=8.sp,color=Color.White)}
                     Spacer(Modifier.width(4.dp))
-                    Text("${formatDateByLang(r.expireDate, LocalAppLanguage.current)} · ${expireText(LocalAppLanguage.current,days)}",fontSize=12.sp,color=Color(0xFF16A34A),fontWeight=FontWeight.SemiBold,maxLines=1,overflow=TextOverflow.Ellipsis)
+                    Text("${formatDateByLang(r.expireDate, LocalAppLanguage.current)} · ${expireText(LocalAppLanguage.current,days)}",fontSize=12.sp,color=if(decorated) Color(0xFFB9F6CA) else success,fontWeight=FontWeight.SemiBold,maxLines=1,overflow=TextOverflow.Ellipsis)
                 }
                 Row(verticalAlignment=Alignment.CenterVertically){
                     Text("☎ ${r.countryCode} ${if(hidden) "•••• ${r.number.takeLast(4)}" else formatNumber(r.number)}",fontSize=15.sp,fontWeight=FontWeight.Medium,color=txtPrimary,maxLines=1,overflow=TextOverflow.Ellipsis,modifier=Modifier.weight(1f))
-                    Text(r.balance.ifBlank{estimateBalance(r)},fontSize=14.sp,fontWeight=FontWeight.SemiBold,color=Color(0xFF007AFF),maxLines=1)
+                    Text(r.balance.ifBlank{estimateBalance(r)},fontSize=14.sp,fontWeight=FontWeight.SemiBold,color=if(decorated) Color(0xFFD7E2FF) else accent,maxLines=1)
                     Spacer(Modifier.width(8.dp))
                     Text(if(hidden)"◉" else "◎",fontSize=16.sp,color=txtBody,modifier=Modifier.clickable{hidden=!hidden})
                 }
-                Row(verticalAlignment=Alignment.CenterVertically){Text("EID ${r.eid.ifBlank{fakeEidForCard(r)}}",fontSize=10.sp,color=if(dark) Color(0xFFB0B8C4) else txtSecondary,maxLines=1,overflow=TextOverflow.Ellipsis,modifier=Modifier.weight(1f)); Text(signalIcon(r.signalStatus)+" "+r.signalStatus,fontSize=10.sp,color=Color(0xFF16A34A),maxLines=1)}
-                Box(Modifier.fillMaxWidth(.80f).height(4.dp).clip(RoundedCornerShape(2.dp)).background(Color(0xFFE5E7EB))){Box(Modifier.fillMaxWidth(progress).fillMaxHeight().background(Color(0xFF22C55E)))}
+                Row(verticalAlignment=Alignment.CenterVertically){Text("EID ${r.eid.ifBlank{fakeEidForCard(r)}}",fontSize=10.sp,color=txtSecondary,maxLines=1,overflow=TextOverflow.Ellipsis,modifier=Modifier.weight(1f)); Text(signalIcon(r.signalStatus)+" "+r.signalStatus,fontSize=10.sp,color=if(decorated) Color(0xFFB9F6CA) else success,maxLines=1)}
+                Box(Modifier.fillMaxWidth(.82f).height(5.dp).clip(RoundedCornerShape(3.dp)).background(if(decorated) Color.White.copy(alpha=.28f) else scheme.surfaceVariant)){Box(Modifier.fillMaxWidth(progress).fillMaxHeight().background(success))}
                 Spacer(Modifier.height(2.dp))
 
             }
@@ -498,7 +849,7 @@ fun shareExportFile(ctx:Context,fileName:String,mime:String,content:String,title
                 val mEdit=L("编辑"); val mCopy=L("复制号码"); val mKeep=L("保号"); val mTraffic=L("刷流量"); val mSort="排序"; val mDel=L("删除")
                 Popup(alignment=Alignment.Center,onDismissRequest={showMenu=false}){
                     Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha=0.35f)).clickable{showMenu=false},contentAlignment=Alignment.Center){
-                        Card(shape=RoundedCornerShape(14.dp),colors=CardDefaults.cardColors(containerColor=Color.White),elevation=CardDefaults.cardElevation(12.dp),modifier=Modifier.widthIn(min=220.dp,max=280.dp)){
+                        Card(shape=RoundedCornerShape(24.dp),colors=CardDefaults.cardColors(containerColor=scheme.surfaceContainerHigh),elevation=CardDefaults.cardElevation(12.dp),modifier=Modifier.widthIn(min=220.dp,max=280.dp)){
                             Column(Modifier.padding(vertical=4.dp)){
                                 data class MenuItem(val label:String, val isDel:Boolean=false, val action:()->Unit)
                                 val items=listOf(
@@ -510,10 +861,10 @@ fun shareExportFile(ctx:Context,fileName:String,mime:String,content:String,title
                                     MenuItem(mDel,isDel=true){showMenu=false;del=true},
                                 )
                                 items.forEachIndexed{idx,item->
-                                    Box(Modifier.fillMaxWidth().clickable{item.action()}.padding(horizontal=20.dp,vertical=13.dp)){
-                                        Text(item.label,fontSize=15.sp,fontWeight=FontWeight.Normal,color=if(item.isDel) Color(0xFFFF3B30) else Color(0xFF111827))
+                                    Box(Modifier.fillMaxWidth().motionClickable(pressedScale=.985f){item.action()}.padding(horizontal=20.dp,vertical=13.dp)){
+                                        Text(item.label,fontSize=15.sp,fontWeight=FontWeight.Normal,color=if(item.isDel) scheme.error else scheme.onSurface)
                                     }
-                                    if(idx<items.size-1) Box(Modifier.padding(horizontal=20.dp).fillMaxWidth().height(0.5.dp).background(Color(0xFFE5E7EB)))
+                                    if(idx<items.size-1) Box(Modifier.padding(horizontal=20.dp).fillMaxWidth().height(0.5.dp).background(scheme.outlineVariant))
                                 }
                             }
                         }
@@ -527,11 +878,11 @@ fun shareExportFile(ctx:Context,fileName:String,mime:String,content:String,title
 }
 
 @Composable fun MiniAction(text:String,color:Color,onClick:()->Unit){
-    Box(Modifier.widthIn(min=48.dp,max=62.dp).height(28.dp).clip(RoundedCornerShape(16.dp)).background(color.copy(alpha=.10f)).clickable{onClick()},contentAlignment=Alignment.Center){Text(text,fontSize=11.sp,fontWeight=FontWeight.SemiBold,color=color,maxLines=1)}
+    Box(Modifier.widthIn(min=48.dp,max=62.dp).height(28.dp).clip(RoundedCornerShape(16.dp)).background(color.copy(alpha=.10f)).motionClickable{onClick()},contentAlignment=Alignment.Center){Text(text,fontSize=11.sp,fontWeight=FontWeight.SemiBold,color=color,maxLines=1)}
 }
 
 @Composable fun CardIconAction(type:String,color:Color,onClick:()->Unit){
-    Box(Modifier.width(30.dp).height(40.dp).clip(RoundedCornerShape(13.dp)).background(color.copy(alpha=.14f)).clickable{onClick()},contentAlignment=Alignment.Center){
+    Box(Modifier.width(30.dp).height(40.dp).clip(RoundedCornerShape(13.dp)).background(color.copy(alpha=.14f)).motionClickable{onClick()},contentAlignment=Alignment.Center){
         Canvas(Modifier.width(16.dp).height(26.dp)){
             val w=size.width; val h=size.height; val st=Stroke(width=1.9f)
             when(type){
@@ -604,11 +955,13 @@ fun shareExportFile(ctx:Context,fileName:String,mime:String,content:String,title
         else -> "SIM"
     }
     val bg=when(label){"CM"->Color(0xFF0085D0);"CU"->Color(0xFFE60012);"CT"->Color(0xFF005BAC);"AIS"->Color(0xFF78BE20);"R"->Color(0xFFBF0000);"V"->Color(0xFFE60000);"T"->Color(0xFFE20074);else->Color(0xFF111827)}
-    Box(Modifier.size(44.dp).clip(RoundedCornerShape(13.dp)).background(if(assetBitmap!=null || onlineLogo.isNotBlank()) Color.White else bg).border(.75.dp,Color(0xFFE5E7EB),RoundedCornerShape(13.dp)),contentAlignment=Alignment.Center){
-        when{
-            assetBitmap!=null -> Image(bitmap=assetBitmap,contentDescription=display,contentScale=ContentScale.Fit,modifier=Modifier.size(38.dp).clip(RoundedCornerShape(10.dp)))
-            onlineLogo.isNotBlank() -> AsyncImage(model=onlineLogo,contentDescription=display,contentScale=ContentScale.Fit,modifier=Modifier.size(38.dp).clip(RoundedCornerShape(10.dp)))
-            else -> Text(label,fontSize=if(label.length>3) 8.sp else 12.sp,fontWeight=FontWeight.Bold,color=Color.White,maxLines=1)
+    when{
+        assetBitmap!=null -> Image(bitmap=assetBitmap,contentDescription=display,contentScale=ContentScale.Fit,modifier=Modifier.size(54.dp))
+        onlineLogo.isNotBlank() -> AsyncImage(model=onlineLogo,contentDescription=display,contentScale=ContentScale.Fit,modifier=Modifier.size(54.dp))
+        else -> {
+            Box(Modifier.size(44.dp).clip(RoundedCornerShape(13.dp)).background(bg),contentAlignment=Alignment.Center){
+                Text(label,fontSize=if(label.length>3) 8.sp else 12.sp,fontWeight=FontWeight.Bold,color=Color.White,maxLines=1)
+            }
         }
     }
 }
@@ -620,7 +973,7 @@ fun shareExportFile(ctx:Context,fileName:String,mime:String,content:String,title
     val theme=countryTheme(r.countryCode,r.countryName)
     val progress=when{days==null->.25f; days<0->1f; else->(1f-(days.coerceIn(0,365).toFloat()/365f)).coerceIn(.08f,.92f)}
     var del by remember{ mutableStateOf(false) }; var keep by remember{ mutableStateOf(false) }; var hidden by remember{ mutableStateOf(false) }
-    Card(shape=RoundedCornerShape(24.dp),elevation=CardDefaults.cardElevation(3.dp),modifier=Modifier.fillMaxWidth().clickable{on编辑(r)}){
+    Card(shape=RoundedCornerShape(24.dp),elevation=CardDefaults.cardElevation(3.dp),modifier=Modifier.fillMaxWidth().motionClickable(pressedScale=.985f){on编辑(r)}){
         Box(Modifier.background(Brush.linearGradient(theme)).padding(15.dp)){
             Column(verticalArrangement=Arrangement.spacedBy(9.dp)){
                 Row(verticalAlignment=Alignment.CenterVertically){
@@ -650,43 +1003,296 @@ fun shareExportFile(ctx:Context,fileName:String,mime:String,content:String,title
 
 @Composable fun WhitePill(text:String,danger:Boolean=false,onClick:()->Unit){
     val c=if(danger) Color(0xFFFF3B30) else Color(0xFF007AFF)
-    Text(text,fontSize=12.sp,fontWeight=FontWeight.SemiBold,color=c,modifier=Modifier.clip(RoundedCornerShape(99.dp)).background(Color.White.copy(alpha=.92f)).clickable{onClick()}.padding(horizontal=10.dp,vertical=5.dp))
+    Text(text,fontSize=12.sp,fontWeight=FontWeight.SemiBold,color=c,modifier=Modifier.clip(RoundedCornerShape(99.dp)).background(Color.White.copy(alpha=.92f)).motionClickable{onClick()}.padding(horizontal=10.dp,vertical=5.dp))
 }
 
-fun countryTheme(code:String,name:String):List<Color>{
-    return when{
-        code=="+66" || name.contains("泰") -> listOf(Color(0xFF6A5CFF),Color(0xFF21C784))
-        code=="+1" -> listOf(Color(0xFF1E3A8A),Color(0xFFDC2626))
-        code=="+81" -> listOf(Color(0xFFEF4444),Color(0xFFFFD1D1))
-        code=="+49" -> listOf(Color(0xFF111827),Color(0xFFF59E0B))
-        code=="+852" || name.contains("香港") -> listOf(Color(0xFFB91C1C),Color(0xFFFF6B6B))
-        code=="+853" || name.contains("澳门") -> listOf(Color(0xFF047857),Color(0xFFF59E0B))
-        code=="+86" || name.contains("中国") -> listOf(Color(0xFFE60012),Color(0xFFD40000))
-        else -> listOf(Color(0xFF2563EB),Color(0xFF0EA5E9))
+fun countryIsoFor(code:String,name:String):String =
+    Countries.list.firstOrNull{it.code==code && (it.name==name || it.iso.equals(name,true))}?.iso
+        ?: Countries.list.firstOrNull{it.iso.equals(name,true)}?.iso
+        ?: Countries.list.firstOrNull{it.code==code}?.iso
+        ?: ""
+
+fun countryTheme(code:String,name:String):List<Color> =
+    flagColorsForIso(countryIsoFor(code,name))
+
+
+data class FlagPalette(
+    val primary:Color,
+    val secondary:Color,
+    val accent:Color,
+    val soft:Color,
+    val ink:Color
+)
+
+fun flagPaletteFor(code:String,name:String):FlagPalette =
+    flagPaletteFor(countryIsoFor(code,name),code,name)
+
+fun flagPaletteFor(iso:String,code:String,name:String):FlagPalette{
+    val colors=flagColorsForIso(iso.ifBlank{countryIsoFor(code,name)})
+    val primary=colors.getOrElse(0){Color(0xFF2563EB)}
+    val secondary=colors.getOrElse(1){Color(0xFF0EA5E9)}
+    val accent=colors.getOrElse(2){secondary}
+    val soft=mixFlagColor(mixFlagColor(primary,secondary,.34f),Color.White,.78f)
+    val ink=if(flagColorBrightness(soft)>.55f) Color(0xFF172033) else Color.White
+    return FlagPalette(primary,secondary,accent,soft,ink)
+}
+
+private fun flagColorsForIso(iso:String):List<Color>{
+    val code=iso.uppercase()
+    return countryFlagColors[code] ?: generatedFlagColors(code)
+}
+
+private fun generatedFlagColors(iso:String):List<Color>{
+    val seed=iso.fold(0){acc,c->acc*31+c.code}
+    val hue=((seed % 360)+360)%360
+    val primary=Color(android.graphics.Color.HSVToColor(floatArrayOf(hue.toFloat(),.78f,.70f)))
+    val secondary=Color(android.graphics.Color.HSVToColor(floatArrayOf(((hue+42)%360).toFloat(),.72f,.84f)))
+    val accent=Color(android.graphics.Color.HSVToColor(floatArrayOf(((hue+176)%360).toFloat(),.58f,.86f)))
+    return listOf(primary,secondary,accent)
+}
+
+private fun mixFlagColor(a:Color,b:Color,t:Float):Color{
+    val x=t.coerceIn(0f,1f)
+    return Color(
+        red=a.red+(b.red-a.red)*x,
+        green=a.green+(b.green-a.green)*x,
+        blue=a.blue+(b.blue-a.blue)*x,
+        alpha=a.alpha+(b.alpha-a.alpha)*x
+    )
+}
+
+private val countryFlagColors=mapOf(
+    "CN" to listOf(Color(0xFFDE2910),Color(0xFFFFDE00),Color(0xFFFFF0B3)),
+    "HK" to listOf(Color(0xFFDE2910),Color.White,Color(0xFFFFD6D6)),
+    "MO" to listOf(Color(0xFF00785E),Color(0xFFFFD348),Color.White),
+    "TW" to listOf(Color(0xFFFE0000),Color(0xFF000095),Color.White),
+    "US" to listOf(Color(0xFF3C3B6E),Color(0xFFB22234),Color.White),
+    "CA" to listOf(Color(0xFFD52B1E),Color.White,Color(0xFFFFD6D0)),
+    "GB" to listOf(Color(0xFF012169),Color(0xFFC8102E),Color.White),
+    "DE" to listOf(Color(0xFF111111),Color(0xFFDD0000),Color(0xFFFFCE00)),
+    "FR" to listOf(Color(0xFF0055A4),Color(0xFFEF4135),Color.White),
+    "IT" to listOf(Color(0xFF009246),Color(0xFFCE2B37),Color.White),
+    "ES" to listOf(Color(0xFFC60B1E),Color(0xFFFFC400),Color(0xFFAA151B)),
+    "NL" to listOf(Color(0xFF21468B),Color(0xFFAE1C28),Color.White),
+    "BE" to listOf(Color(0xFF111111),Color(0xFFED2939),Color(0xFFFFD90C)),
+    "CH" to listOf(Color(0xFFFF0000),Color.White,Color(0xFFFFCFCF)),
+    "AT" to listOf(Color(0xFFED2939),Color.White,Color(0xFFFFD6D6)),
+    "SE" to listOf(Color(0xFF006AA7),Color(0xFFFECC00),Color(0xFFE5F4FF)),
+    "NO" to listOf(Color(0xFF00205B),Color(0xFFBA0C2F),Color.White),
+    "DK" to listOf(Color(0xFFC60C30),Color.White,Color(0xFFFFD7DF)),
+    "FI" to listOf(Color(0xFF002F6C),Color.White,Color(0xFFE5F0FF)),
+    "IS" to listOf(Color(0xFF02529C),Color(0xFFDC1E35),Color.White),
+    "IE" to listOf(Color(0xFF169B62),Color(0xFFFF883E),Color.White),
+    "PT" to listOf(Color(0xFF006600),Color(0xFFFF0000),Color(0xFFFFCC00)),
+    "GR" to listOf(Color(0xFF0D5EAF),Color.White,Color(0xFFE8F2FF)),
+    "PL" to listOf(Color(0xFFDC143C),Color.White,Color(0xFFFFD9E1)),
+    "CZ" to listOf(Color(0xFF11457E),Color(0xFFD7141A),Color.White),
+    "SK" to listOf(Color(0xFF0B4EA2),Color(0xFFEE1C25),Color.White),
+    "HU" to listOf(Color(0xFF436F4D),Color(0xFFCD2A3E),Color.White),
+    "RO" to listOf(Color(0xFF002B7F),Color(0xFFFCD116),Color(0xFFCE1126)),
+    "BG" to listOf(Color(0xFF00966E),Color(0xFFD62612),Color.White),
+    "HR" to listOf(Color(0xFF171796),Color(0xFFFF0000),Color.White),
+    "SI" to listOf(Color(0xFF005DA4),Color(0xFFFF0000),Color.White),
+    "RS" to listOf(Color(0xFF0C4076),Color(0xFFC6363C),Color.White),
+    "BA" to listOf(Color(0xFF002395),Color(0xFFFECB00),Color.White),
+    "ME" to listOf(Color(0xFFC40308),Color(0xFFD3AE3B),Color(0xFF1D5E33)),
+    "MK" to listOf(Color(0xFFD20000),Color(0xFFFFD700),Color(0xFFFFA400)),
+    "AL" to listOf(Color(0xFFE41E20),Color(0xFF111111),Color(0xFFFFD9D9)),
+    "LT" to listOf(Color(0xFF006A44),Color(0xFFFDB913),Color(0xFFC1272D)),
+    "LV" to listOf(Color(0xFF9E3039),Color.White,Color(0xFFFFE0E4)),
+    "EE" to listOf(Color(0xFF0072CE),Color(0xFF111111),Color.White),
+    "MD" to listOf(Color(0xFF003DA5),Color(0xFFFFD100),Color(0xFFCE1126)),
+    "BY" to listOf(Color(0xFFD22730),Color(0xFF00AF66),Color.White),
+    "UA" to listOf(Color(0xFF0057B7),Color(0xFFFFD700),Color(0xFFE8F2FF)),
+    "RU" to listOf(Color(0xFF0039A6),Color(0xFFD52B1E),Color.White),
+    "KZ" to listOf(Color(0xFF00AFCA),Color(0xFFFFD100),Color(0xFFE8FBFF)),
+    "GE" to listOf(Color(0xFFFF0000),Color.White,Color(0xFFFFDADA)),
+    "AM" to listOf(Color(0xFFD90012),Color(0xFF0033A0),Color(0xFFF2A800)),
+    "AZ" to listOf(Color(0xFF0098C3),Color(0xFFE00034),Color(0xFF00AE65)),
+    "TR" to listOf(Color(0xFFE30A17),Color.White,Color(0xFFFFD8DA)),
+    "IL" to listOf(Color(0xFF0038B8),Color.White,Color(0xFFE8F0FF)),
+    "AE" to listOf(Color(0xFF00732F),Color(0xFFFF0000),Color(0xFF111111)),
+    "SA" to listOf(Color(0xFF006C35),Color.White,Color(0xFFE3F7EA)),
+    "QA" to listOf(Color(0xFF8A1538),Color.White,Color(0xFFFFDCE6)),
+    "KW" to listOf(Color(0xFF007A3D),Color(0xFFCE1126),Color(0xFF111111)),
+    "BH" to listOf(Color(0xFFCE1126),Color.White,Color(0xFFFFD9DE)),
+    "OM" to listOf(Color(0xFFC8102E),Color(0xFF007A3D),Color.White),
+    "JO" to listOf(Color(0xFF007A3D),Color(0xFFCE1126),Color(0xFF111111)),
+    "LB" to listOf(Color(0xFFED1C24),Color(0xFF00843D),Color.White),
+    "EG" to listOf(Color(0xFFCE1126),Color(0xFF111111),Color.White),
+    "MA" to listOf(Color(0xFFC1272D),Color(0xFF006233),Color(0xFFFFD8D8)),
+    "TN" to listOf(Color(0xFFE70013),Color.White,Color(0xFFFFD7DA)),
+    "DZ" to listOf(Color(0xFF006233),Color(0xFFD21034),Color.White),
+    "NG" to listOf(Color(0xFF008753),Color.White,Color(0xFFE4FFF3)),
+    "KE" to listOf(Color(0xFF006600),Color(0xFFBB0000),Color(0xFF111111)),
+    "ZA" to listOf(Color(0xFF007A4D),Color(0xFFFFB612),Color(0xFF002395)),
+    "JP" to listOf(Color(0xFFBC002D),Color.White,Color(0xFFFFDEE6)),
+    "KR" to listOf(Color(0xFFCD2E3A),Color(0xFF0047A0),Color.White),
+    "SG" to listOf(Color(0xFFEF3340),Color.White,Color(0xFFFFDCE0)),
+    "MY" to listOf(Color(0xFF010066),Color(0xFFCC0001),Color(0xFFFFCC00)),
+    "TH" to listOf(Color(0xFF2D2A4A),Color(0xFFA51931),Color.White),
+    "VN" to listOf(Color(0xFFDA251D),Color(0xFFFFD700),Color(0xFFFFE7A6)),
+    "PH" to listOf(Color(0xFF0038A8),Color(0xFFCE1126),Color(0xFFFCD116)),
+    "ID" to listOf(Color(0xFFCE1126),Color.White,Color(0xFFFFD9DE)),
+    "KH" to listOf(Color(0xFF032EA1),Color(0xFFE00025),Color.White),
+    "LA" to listOf(Color(0xFF002868),Color(0xFFCE1126),Color.White),
+    "MM" to listOf(Color(0xFF34B233),Color(0xFFFFC400),Color(0xFFEA2839)),
+    "BN" to listOf(Color(0xFFF7E017),Color(0xFF111111),Color(0xFFCF1126)),
+    "IN" to listOf(Color(0xFFFF9933),Color(0xFF138808),Color(0xFF000080)),
+    "PK" to listOf(Color(0xFF01411C),Color.White,Color(0xFFE4F7EA)),
+    "BD" to listOf(Color(0xFF006A4E),Color(0xFFF42A41),Color(0xFFE5F7F0)),
+    "LK" to listOf(Color(0xFFFFB700),Color(0xFF8D153A),Color(0xFF00534E)),
+    "NP" to listOf(Color(0xFFDC143C),Color(0xFF003893),Color.White),
+    "MV" to listOf(Color(0xFF007E3A),Color(0xFFD21034),Color.White),
+    "AU" to listOf(Color(0xFF00008B),Color(0xFFE4002B),Color.White),
+    "NZ" to listOf(Color(0xFF00247D),Color(0xFFCC142B),Color.White),
+    "FJ" to listOf(Color(0xFF68BFE5),Color(0xFF002868),Color(0xFFCE1126)),
+    "BR" to listOf(Color(0xFF009B3A),Color(0xFFFFDF00),Color(0xFF002776)),
+    "AR" to listOf(Color(0xFF74ACDF),Color(0xFFF6B40E),Color.White),
+    "CL" to listOf(Color(0xFF0039A6),Color(0xFFD52B1E),Color.White),
+    "CO" to listOf(Color(0xFFFCD116),Color(0xFF003893),Color(0xFFCE1126)),
+    "PE" to listOf(Color(0xFFD91023),Color.White,Color(0xFFFFD9DE)),
+    "MX" to listOf(Color(0xFF006847),Color(0xFFCE1126),Color.White),
+    "UY" to listOf(Color(0xFF0038A8),Color(0xFFFFD100),Color.White),
+    "PY" to listOf(Color(0xFF0038A8),Color(0xFFD52B1E),Color.White),
+    "BO" to listOf(Color(0xFF007934),Color(0xFFFCD116),Color(0xFFD52B1E)),
+    "EC" to listOf(Color(0xFFFFDD00),Color(0xFF034EA2),Color(0xFFED1C24)),
+    "VE" to listOf(Color(0xFFFFCC00),Color(0xFF00247D),Color(0xFFCF142B)),
+    "CR" to listOf(Color(0xFF002B7F),Color(0xFFCE1126),Color.White),
+    "PA" to listOf(Color(0xFF005293),Color(0xFFD21034),Color.White),
+    "GT" to listOf(Color(0xFF4997D0),Color.White,Color(0xFF2E7D32)),
+    "DO" to listOf(Color(0xFF002D62),Color(0xFFCE1126),Color.White),
+    "JM" to listOf(Color(0xFF009B3A),Color(0xFFFED100),Color(0xFF111111)),
+    "LU" to listOf(Color(0xFF00A1DE),Color(0xFFEF3340),Color.White),
+    "MT" to listOf(Color(0xFFCF142B),Color.White,Color(0xFFFFD9DE)),
+    "CY" to listOf(Color(0xFFD57800),Color(0xFF4E5B31),Color.White),
+    "MC" to listOf(Color(0xFFCE1126),Color.White,Color(0xFFFFD9DE)),
+    "LI" to listOf(Color(0xFF002B7F),Color(0xFFCE1126),Color(0xFFFFD83D)),
+    "AD" to listOf(Color(0xFF10069F),Color(0xFFFFCD00),Color(0xFFD50032)),
+    "SM" to listOf(Color(0xFF5EB6E4),Color.White,Color(0xFFF3C300)),
+    "XK" to listOf(Color(0xFF244AA5),Color(0xFFFFD500),Color.White),
+    "GI" to listOf(Color(0xFFDA000C),Color.White,Color(0xFFFFC400)),
+    "FO" to listOf(Color(0xFF0065BD),Color(0xFFED2939),Color.White),
+    "IQ" to listOf(Color(0xFFCE1126),Color(0xFF007A3D),Color(0xFF111111)),
+    "IR" to listOf(Color(0xFF239F40),Color(0xFFDA0000),Color.White),
+    "SY" to listOf(Color(0xFFCE1126),Color(0xFF007A3D),Color(0xFF111111)),
+    "YE" to listOf(Color(0xFFCE1126),Color(0xFF111111),Color.White),
+    "PS" to listOf(Color(0xFF007A3D),Color(0xFFCE1126),Color(0xFF111111)),
+    "AF" to listOf(Color(0xFF111111),Color(0xFFD32011),Color(0xFF007A36)),
+    "UZ" to listOf(Color(0xFF1EB1E7),Color(0xFF009739),Color(0xFFCE1126)),
+    "KG" to listOf(Color(0xFFE8112D),Color(0xFFFFD100),Color(0xFFFFE7A3)),
+    "TJ" to listOf(Color(0xFF006747),Color(0xFFCC0000),Color(0xFFF8C300)),
+    "TM" to listOf(Color(0xFF00843D),Color(0xFFD22630),Color.White),
+    "MN" to listOf(Color(0xFFC4272F),Color(0xFF015197),Color(0xFFFFD900)),
+    "BT" to listOf(Color(0xFFFFCC33),Color(0xFFFF4E12),Color.White),
+    "TL" to listOf(Color(0xFFFFC726),Color(0xFFDC241F),Color(0xFF111111)),
+    "PG" to listOf(Color(0xFFCE1126),Color(0xFF111111),Color(0xFFFFD100)),
+    "WS" to listOf(Color(0xFFCE1126),Color(0xFF002B7F),Color.White),
+    "TO" to listOf(Color(0xFFC10000),Color.White,Color(0xFFFFD9D9)),
+    "VU" to listOf(Color(0xFF009543),Color(0xFFD21034),Color(0xFFFFCE00)),
+    "SB" to listOf(Color(0xFF0051BA),Color(0xFF215B33),Color(0xFFFFD100)),
+    "NC" to listOf(Color(0xFF009543),Color(0xFFED4135),Color(0xFF0035AD)),
+    "PF" to listOf(Color(0xFFCE1126),Color.White,Color(0xFFFFD9DE)),
+    "GU" to listOf(Color(0xFF003893),Color(0xFFEF3340),Color(0xFFFFD100)),
+    "GH" to listOf(Color(0xFF006B3F),Color(0xFFFCD116),Color(0xFFCE1126)),
+    "CI" to listOf(Color(0xFFF77F00),Color(0xFF009E60),Color.White),
+    "SN" to listOf(Color(0xFF00853F),Color(0xFFFDEF42),Color(0xFFE31B23)),
+    "CM" to listOf(Color(0xFF007A5E),Color(0xFFFCD116),Color(0xFFCE1126)),
+    "ET" to listOf(Color(0xFF078930),Color(0xFFFCDD09),Color(0xFFDA121A)),
+    "TZ" to listOf(Color(0xFF1EB53A),Color(0xFF00A3DD),Color(0xFFFCD116)),
+    "UG" to listOf(Color(0xFFFFD100),Color(0xFFDA0000),Color(0xFF111111)),
+    "ZM" to listOf(Color(0xFF198A00),Color(0xFFDE2010),Color(0xFFFF8200)),
+    "ZW" to listOf(Color(0xFF319208),Color(0xFFFFD200),Color(0xFFE4002B)),
+    "AO" to listOf(Color(0xFFCC092F),Color(0xFF111111),Color(0xFFFFCB00)),
+    "MZ" to listOf(Color(0xFF009739),Color(0xFFFFD100),Color(0xFFD21034)),
+    "MU" to listOf(Color(0xFF00A551),Color(0xFFEA2839),Color(0xFF1A206D)),
+    "MG" to listOf(Color(0xFF007E3A),Color(0xFFFC3D32),Color.White),
+    "RE" to listOf(Color(0xFF0055A4),Color(0xFFEF4135),Color(0xFFFFD100)),
+    "LY" to listOf(Color(0xFF239E46),Color(0xFFE70013),Color(0xFF111111)),
+    "SD" to listOf(Color(0xFF007229),Color(0xFFD21034),Color(0xFF111111)),
+    "CD" to listOf(Color(0xFF007FFF),Color(0xFFF7D618),Color(0xFFCE1021)),
+    "CG" to listOf(Color(0xFF009543),Color(0xFFFCD116),Color(0xFFDC241F)),
+    "RW" to listOf(Color(0xFF00A1DE),Color(0xFF20603D),Color(0xFFFAD201)),
+    "BW" to listOf(Color(0xFF75AADB),Color(0xFF111111),Color.White),
+    "NA" to listOf(Color(0xFF003580),Color(0xFFD21034),Color(0xFF009543)),
+    "BB" to listOf(Color(0xFF00267F),Color(0xFFFFC726),Color(0xFF111111)),
+    "TT" to listOf(Color(0xFFDA1A35),Color(0xFF111111),Color.White),
+    "BS" to listOf(Color(0xFF00ABC9),Color(0xFFFCD116),Color(0xFF111111)),
+    "CU" to listOf(Color(0xFF002A8F),Color(0xFFCF142B),Color.White),
+    "HN" to listOf(Color(0xFF00BCE4),Color.White,Color(0xFFE6FAFF)),
+    "NI" to listOf(Color(0xFF0067C6),Color.White,Color(0xFFE7F2FF)),
+    "SV" to listOf(Color(0xFF0047AB),Color.White,Color(0xFFE7F0FF)),
+    "BZ" to listOf(Color(0xFF003F87),Color(0xFFD90F19),Color.White),
+    "GY" to listOf(Color(0xFF009E49),Color(0xFFFCD116),Color(0xFFCE1126)),
+    "SR" to listOf(Color(0xFF377E3F),Color(0xFFB40A2D),Color(0xFFFCD116))
+)
+
+fun flagColorBrightness(color:Color):Float = color.red*.299f + color.green*.587f + color.blue*.114f
+fun readableOnFlagColor(color:Color):Color = if(flagColorBrightness(color)>.62f) Color(0xFF172033) else Color.White
+fun usableFlagActionColor(color:Color,fallback:Color):Color = if(flagColorBrightness(color)>.88f) fallback else color
+
+@Composable fun FlagProgressBar(progress:Float,palette:FlagPalette,expired:Boolean=false,warning:Boolean=false,modifier:Modifier=Modifier){
+    val animated by animateFloatAsState(
+        targetValue=progress.coerceIn(.04f,.98f),
+        animationSpec=spring(),
+        label="flagProgress"
+    )
+    val fillStart=when{
+        expired -> Color(0xFFE53935)
+        warning -> palette.secondary
+        else -> palette.primary
+    }
+    val fillEnd=when{
+        expired -> Color(0xFFFF8A80)
+        warning -> palette.accent
+        else -> palette.secondary
+    }
+    Box(
+        modifier
+            .fillMaxWidth()
+            .height(16.dp)
+            .clip(RoundedCornerShape(99.dp))
+            .background(Brush.horizontalGradient(listOf(Color.White.copy(alpha=.56f),palette.soft.copy(alpha=.72f),Color.White.copy(alpha=.38f))))
+            .border(0.8.dp,Color.White.copy(alpha=.64f),RoundedCornerShape(99.dp))
+            .padding(3.dp)
+    ){
+        Box(
+            Modifier
+                .fillMaxHeight()
+                .fillMaxWidth(animated)
+                .clip(RoundedCornerShape(99.dp))
+                .background(Brush.horizontalGradient(listOf(fillStart,fillEnd)))
+        ){
+            Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Color.White.copy(alpha=.32f),Color.Transparent))))
+        }
+        Canvas(Modifier.matchParentSize()){
+            val h=size.height
+            listOf(.25f,.5f,.75f).forEach{ mark->
+                val x=size.width*mark
+                drawCircle(Color.White.copy(alpha=.70f),radius=h*.16f,center=Offset(x,h*.50f))
+                drawCircle(palette.primary.copy(alpha=.24f),radius=h*.09f,center=Offset(x,h*.50f))
+            }
+            val knobX=(size.width*animated).coerceIn(h*.45f,size.width-h*.45f)
+            drawCircle(Color.White.copy(alpha=.94f),radius=h*.40f,center=Offset(knobX,h*.50f))
+            drawCircle(fillEnd.copy(alpha=.90f),radius=h*.23f,center=Offset(knobX,h*.50f))
+        }
     }
 }
 
-
 @Composable fun FlagArtPanel(r:PhoneNumberRecord,m:Modifier,bankCardStyle:Boolean=false){
     val ctx = LocalContext.current
-    val colors=countryTheme(r.countryCode,r.countryName)
-    val iso = Countries.list.firstOrNull{it.code==r.countryCode && it.name==r.countryName}?.iso
-        ?: Countries.list.firstOrNull{it.code==r.countryCode}?.iso
-        ?: when{
-            r.countryName.contains("中国") -> "CN"
-            r.countryName.contains("香港") -> "HK"
-            r.countryName.contains("澳门") -> "MO"
-            else -> ""
-        }
+    val iso = countryIsoFor(r.countryCode,r.countryName)
+    val palette = flagPaletteFor(iso,r.countryCode,r.countryName)
+    val colors=listOf(palette.primary,palette.secondary)
     val preferredAsset = cardBackgroundPath(r, iso, bankCardStyle)
     val assetJpg = if(iso.isBlank()) "" else "flag_backgrounds/${iso.lowercase()}.jpg"
     val assetPng = if(iso.isBlank()) "" else "flag_backgrounds/${iso.lowercase()}.png"
     val flagBitmap = rememberAssetBitmap(preferredAsset, bankCardStyle) ?: rememberAssetBitmap(assetJpg, bankCardStyle) ?: rememberAssetBitmap(assetPng, bankCardStyle)
     Box(m.background(Brush.linearGradient(colors)),contentAlignment=Alignment.Center){
         if(flagBitmap != null){
-            Image(bitmap=flagBitmap,contentDescription=r.countryName,contentScale=ContentScale.FillBounds,modifier=Modifier.fillMaxSize().graphicsLayer(alpha=.96f))
-            Box(Modifier.fillMaxSize().background(Brush.horizontalGradient(listOf(Color.White.copy(alpha=.16f),Color.Transparent,Color.Black.copy(alpha=.20f)))))
-            Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Color.White.copy(alpha=.10f),Color.Transparent,Color.Black.copy(alpha=.10f)))))
+            Image(bitmap=flagBitmap,contentDescription=r.countryName,contentScale=ContentScale.FillBounds,modifier=Modifier.fillMaxSize().graphicsLayer(alpha=.78f))
+            Box(Modifier.fillMaxSize().background(Brush.horizontalGradient(listOf(palette.soft.copy(alpha=.44f),Color.White.copy(alpha=.10f),palette.secondary.copy(alpha=.22f),palette.primary.copy(alpha=.24f)))))
+            Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Color.White.copy(alpha=.13f),Color.Transparent,Color.Black.copy(alpha=.10f)))))
         }else{
             when{
                 r.countryCode=="+86" || r.countryName.contains("中国") -> Box(Modifier.fillMaxSize()){
@@ -696,9 +1302,11 @@ fun countryTheme(code:String,name:String):List<Color>{
                     Text("★",fontSize=15.sp,color=Color(0xFFFFD21F).copy(alpha=.88f),modifier=Modifier.align(Alignment.TopStart).padding(start=83.dp,top=53.dp).graphicsLayer(rotationZ=10f))
                     Text("★",fontSize=15.sp,color=Color(0xFFFFD21F).copy(alpha=.88f),modifier=Modifier.align(Alignment.TopStart).padding(start=68.dp,top=70.dp).graphicsLayer(rotationZ=-18f))
                 }
-                else -> Text(r.flag,fontSize=68.sp,color=Color.White.copy(alpha=.82f),modifier=Modifier.graphicsLayer(scaleX=1.08f,scaleY=1.08f))
+                else -> {
+                    Box(Modifier.fillMaxSize().background(Brush.linearGradient(listOf(palette.primary.copy(alpha=.36f),palette.secondary.copy(alpha=.24f),palette.accent.copy(alpha=.18f)))))
+                }
             }
-            Box(Modifier.fillMaxSize().background(Brush.horizontalGradient(listOf(Color.White.copy(alpha=.12f),Color.Transparent,Color.Black.copy(alpha=.18f)))))
+            Box(Modifier.fillMaxSize().background(Brush.horizontalGradient(listOf(palette.soft.copy(alpha=.30f),Color.Transparent,palette.primary.copy(alpha=.18f)))))
             Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Color.White.copy(alpha=.10f),Color.Transparent,Color.Black.copy(alpha=.10f)))))
         }
     }
@@ -749,19 +1357,114 @@ fun estimateBalance(r:PhoneNumberRecord):String = when{
 }
 fun signalIcon(s:String)=when{ s.contains("离线")||s.contains("无") -> "○"; s.contains("弱") -> "▂"; s.contains("强") -> "▂▄▆"; else -> "▂▄" }
 
+@Composable fun ExpressiveBottomNav(screen:String,on:(String)->Unit){
+    val scheme=MaterialTheme.colorScheme
+    Surface(
+        modifier=Modifier.fillMaxWidth(),
+        color=scheme.surface.copy(alpha=.98f),
+        tonalElevation=4.dp,
+        shadowElevation=10.dp,
+        shape=RoundedCornerShape(topStart=28.dp,topEnd=28.dp)
+    ){
+        Row(
+            modifier=Modifier
+                .fillMaxWidth()
+                .height(86.dp)
+                .padding(horizontal=14.dp,vertical=8.dp),
+            horizontalArrangement=Arrangement.SpaceBetween,
+            verticalAlignment=Alignment.CenterVertically
+        ){
+            listOf("home" to "SIM","esim" to "eSIM","map" to "地图","settings" to "设置").forEach{ item->
+                ExpressiveNavItem(
+                    type=item.first,
+                    label=item.second,
+                    selected=screen==item.first,
+                    modifier=Modifier.weight(1f)
+                ){ on(item.first) }
+            }
+        }
+    }
+}
+
 @Composable fun SimHubBottomNav(screen:String,on:(String)->Unit){
-    Surface(color=MaterialTheme.colorScheme.surface.copy(alpha=.98f),shadowElevation=7.dp){
-        Row(Modifier.fillMaxWidth().height(70.dp).padding(horizontal=20.dp),horizontalArrangement=Arrangement.SpaceAround,verticalAlignment=Alignment.CenterVertically){
-            listOf("home" to L("号码"),"esim" to "eSIM","settings" to L("设置")).forEach{ item->
-                val sel=screen==item.first
-                val scale by animateFloatAsState(targetValue=if(sel)1.02f else 1f,animationSpec=tween(120),label="navScale")
-                val tint=if(sel) Color(0xFF007AFF) else Color(0xFF8E8E93)
-                Column(horizontalAlignment=Alignment.CenterHorizontally,verticalArrangement=Arrangement.spacedBy(3.dp),modifier=Modifier.clip(RoundedCornerShape(16.dp)).background(if(sel)Color(0xFF007AFF).copy(alpha=.08f) else Color.Transparent).clickable{on(item.first)}.padding(horizontal=18.dp,vertical=7.dp).graphicsLayer(scaleX=scale,scaleY=scale)){
-                    BottomLineIcon(item.first,tint)
-                    Text(item.second,fontSize=11.sp,fontWeight=if(sel)FontWeight.SemiBold else FontWeight.Normal,color=tint)
+    ExpressiveBottomNav(screen,on)
+    return
+    val scheme=MaterialTheme.colorScheme
+    NavigationBar(
+        containerColor=scheme.surfaceContainer,
+        tonalElevation=6.dp,
+        modifier=Modifier.fillMaxWidth()
+    ){
+        listOf("home" to L("号码"),"esim" to "eSIM","settings" to L("设置")).forEach{ item->
+            val sel=screen==item.first
+            val scale by animateFloatAsState(targetValue=if(sel)1.05f else 1f,animationSpec=tween(120),label="navScale")
+            NavigationBarItem(
+                selected=sel,
+                onClick={on(item.first)},
+                icon={Box(Modifier.graphicsLayer(scaleX=scale,scaleY=scale)){BottomLineIcon(item.first,if(sel) scheme.onSecondaryContainer else scheme.onSurfaceVariant)}},
+                label={Text(item.second,fontSize=11.sp,fontWeight=if(sel)FontWeight.SemiBold else FontWeight.Normal)},
+                colors=NavigationBarItemDefaults.colors(
+                    selectedIconColor=scheme.onSecondaryContainer,
+                    selectedTextColor=scheme.onSurface,
+                    indicatorColor=scheme.secondaryContainer,
+                    unselectedIconColor=scheme.onSurfaceVariant,
+                    unselectedTextColor=scheme.onSurfaceVariant
+                )
+            )
+        }
+    }
+}
+
+@Composable fun ExpressiveNavItem(type:String,label:String,selected:Boolean,modifier:Modifier=Modifier,onClick:()->Unit){
+    val scheme=MaterialTheme.colorScheme
+    val scale by animateFloatAsState(
+        targetValue=if(selected) 1.04f else 1f,
+        animationSpec=spring(),
+        label="bottomNavItemScale"
+    )
+    val iconColor=if(selected) scheme.onPrimaryContainer else scheme.onSurfaceVariant
+    val textColor=if(selected) scheme.onSurface else scheme.onSurfaceVariant
+    Column(
+        modifier=modifier
+            .height(70.dp)
+            .clip(RoundedCornerShape(24.dp))
+            .motionClickable(pressedScale=.94f){ onClick() }
+            .padding(top=4.dp),
+        horizontalAlignment=Alignment.CenterHorizontally,
+        verticalArrangement=Arrangement.Center
+    ){
+        Surface(
+            shape=RoundedCornerShape(20.dp),
+            color=if(selected) scheme.primaryContainer else Color.Transparent,
+            contentColor=iconColor,
+            tonalElevation=if(selected) 3.dp else 0.dp,
+            shadowElevation=if(selected) 1.dp else 0.dp,
+            modifier=Modifier.graphicsLayer(scaleX=scale,scaleY=scale)
+        ){
+            Box(
+                Modifier
+                    .width(if(selected) 62.dp else 46.dp)
+                    .height(34.dp),
+                contentAlignment=Alignment.Center
+            ){
+                when(type){
+                    "home" -> Icon(Icons.Rounded.SimCard,contentDescription=null,modifier=Modifier.size(21.dp),tint=iconColor)
+                    "esim" -> Icon(Icons.Rounded.CreditCard,contentDescription=null,modifier=Modifier.size(21.dp),tint=iconColor)
+                    "map" -> Icon(Icons.Rounded.Public,contentDescription=null,modifier=Modifier.size(22.dp),tint=iconColor)
+                    else -> Icon(Icons.Rounded.Settings,contentDescription=null,modifier=Modifier.size(21.dp),tint=iconColor)
                 }
             }
         }
+        Spacer(Modifier.height(4.dp))
+        Text(
+            label,
+            fontSize=11.sp,
+            lineHeight=12.sp,
+            fontWeight=if(selected) FontWeight.ExtraBold else FontWeight.SemiBold,
+            color=textColor,
+            maxLines=1,
+            overflow=TextOverflow.Ellipsis
+        )
     }
 }
 
@@ -785,6 +1488,12 @@ fun signalIcon(s:String)=when{ s.contains("离线")||s.contains("无") -> "○";
                 drawRoundRect(color,topLeft=Offset(w*.18f,h*.20f),size=Size(w*.64f,h*.60f),cornerRadius=androidx.compose.ui.geometry.CornerRadius(w*.08f,w*.08f),style=stroke)
                 drawLine(color,Offset(w*.32f,h*.48f),Offset(w*.68f,h*.48f),strokeWidth=2.2f)
                 drawLine(color,Offset(w*.32f,h*.56f),Offset(w*.58f,h*.56f),strokeWidth=1.8f)
+            }
+            "map"->{
+                drawRoundRect(color,topLeft=Offset(w*.12f,h*.18f),size=Size(w*.76f,h*.62f),cornerRadius=androidx.compose.ui.geometry.CornerRadius(w*.08f,w*.08f),style=stroke)
+                drawLine(color,Offset(w*.36f,h*.22f),Offset(w*.36f,h*.76f),strokeWidth=1.8f)
+                drawLine(color,Offset(w*.62f,h*.22f),Offset(w*.62f,h*.76f),strokeWidth=1.8f)
+                drawCircle(color,radius=w*.07f,center=Offset(w*.52f,h*.45f))
             }
             else->{
                 drawCircle(color,radius=w*.26f,center=Offset(w*.5f,h*.5f),style=stroke)
@@ -1192,13 +1901,283 @@ object OperatorLogoAssets {
 }
 
 @Composable fun AppBackground(settings:App设置){
+    val scheme=MaterialTheme.colorScheme
     if(settings.backgroundUri.isNotBlank()){
-        AsyncImage(model=settings.backgroundUri,contentDescription=null,contentScale=ContentScale.Crop,modifier=Modifier.fillMaxSize().background(Color(0xFFF4F5F7)))
-        Box(Modifier.fillMaxSize().background((if(settings.dark) Color.Black else Color.White).copy(alpha=(1f-settings.backgroundAlpha).coerceIn(.18f,.82f))))
-    }else Box(Modifier.fillMaxSize().background(if(settings.dark) Color(0xFF0B0F17) else Color(0xFFF4F5F7)))
+        AsyncImage(model=settings.backgroundUri,contentDescription=null,contentScale=ContentScale.Crop,modifier=Modifier.fillMaxSize().background(scheme.background))
+        Box(Modifier.fillMaxSize().background((if(settings.dark) Color.Black else scheme.surface).copy(alpha=(1f-settings.backgroundAlpha).coerceIn(.18f,.82f))))
+    }else Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(scheme.background,scheme.surfaceContainerLowest,scheme.surfaceContainerLow))))
 }
 
-@Composable fun Home(ctx:Context,records:List<PhoneNumberRecord>,settings:App设置,search:String,filter:String,sortMode:String,on筛选:(String)->Unit,on排序:()->Unit,onAdd:()->Unit,on编辑:(PhoneNumberRecord)->Unit,onDel:(PhoneNumberRecord)->Unit,onDial:(PhoneNumberRecord)->Unit,onTraffic:(PhoneNumberRecord)->Unit,onKeep:(PhoneNumberRecord,Int)->Unit,onReorder:(List<String>)->Unit={}){
+@Composable fun ExpressiveEmptyState(){
+    val scheme=MaterialTheme.colorScheme
+    Column(horizontalAlignment=Alignment.CenterHorizontally,verticalArrangement=Arrangement.spacedBy(12.dp)){
+        Surface(shape=RoundedCornerShape(topStart=34.dp,topEnd=18.dp,bottomStart=18.dp,bottomEnd=34.dp),color=scheme.primaryContainer,contentColor=scheme.onPrimaryContainer,tonalElevation=4.dp){
+            Box(Modifier.size(104.dp).background(Brush.linearGradient(listOf(scheme.primaryContainer,scheme.tertiaryContainer.copy(alpha=.72f)))),contentAlignment=Alignment.Center){
+                Icon(Icons.Rounded.SimCard,contentDescription=null,modifier=Modifier.size(44.dp))
+            }
+        }
+        Text("暂无号码",style=MaterialTheme.typography.titleLarge,color=scheme.onSurface)
+        Text("SIM 状态会显示在这里",style=MaterialTheme.typography.bodyMedium,color=scheme.onSurfaceVariant)
+    }
+}
+
+@Composable fun ExpressiveInlineSearch(
+    search:String,
+    onSearch:(String)->Unit,
+    count:Int,
+    filter:String,
+    sortMode:String,
+    onFilter:(String)->Unit,
+    onSort:(String)->Unit
+){
+    val scheme=MaterialTheme.colorScheme
+    var expanded by remember { mutableStateOf(search.isNotBlank()) }
+    val active = expanded || search.isNotBlank()
+    AnimatedContent(
+        targetState=active,
+        modifier=Modifier.fillMaxWidth().height(52.dp),
+        transitionSpec={
+            (fadeIn(tween(180)) + slideInHorizontally { if(targetState) -it / 5 else it / 5 }) togetherWith
+                (fadeOut(tween(120)) + slideOutHorizontally { if(targetState) it / 5 else -it / 5 })
+        },
+        label="HomeSearchHeader"
+    ){ expandedSearch ->
+        Row(Modifier.fillMaxSize(),verticalAlignment=Alignment.CenterVertically){
+        if(expandedSearch){
+            TextField(
+                value=search,
+                onValueChange=onSearch,
+                modifier=Modifier.fillMaxWidth().height(52.dp),
+                singleLine=true,
+                shape=RoundedCornerShape(26.dp),
+                placeholder={Text("搜索运营商、国家或号码",maxLines=1,overflow=TextOverflow.Ellipsis)},
+                leadingIcon={Icon(Icons.Rounded.Search,contentDescription=null)},
+                trailingIcon={
+                    IconButton(onClick={
+                        if(search.isBlank()) expanded=false else onSearch("")
+                    }){
+                        Icon(Icons.Rounded.Close,contentDescription=null)
+                    }
+                },
+                textStyle=MaterialTheme.typography.bodyLarge,
+                colors=TextFieldDefaults.colors(
+                    focusedContainerColor=scheme.surfaceContainerHigh,
+                    unfocusedContainerColor=scheme.surfaceContainerHigh,
+                    focusedIndicatorColor=Color.Transparent,
+                    unfocusedIndicatorColor=Color.Transparent,
+                    cursorColor=scheme.primary,
+                    focusedTextColor=scheme.onSurface,
+                    unfocusedTextColor=scheme.onSurface,
+                    focusedLeadingIconColor=scheme.primary,
+                    unfocusedLeadingIconColor=scheme.onSurfaceVariant,
+                    focusedTrailingIconColor=scheme.onSurfaceVariant,
+                    unfocusedTrailingIconColor=scheme.onSurfaceVariant,
+                    focusedPlaceholderColor=scheme.onSurfaceVariant,
+                    unfocusedPlaceholderColor=scheme.onSurfaceVariant
+                )
+            )
+        }else{
+            FilledTonalIconButton(
+                onClick={ expanded=true },
+                modifier=Modifier.size(48.dp),
+                shape=RoundedCornerShape(24.dp),
+                colors=IconButtonDefaults.filledTonalIconButtonColors(
+                    containerColor=scheme.surfaceContainerHigh,
+                    contentColor=scheme.onSurfaceVariant
+                )
+            ){
+                Icon(Icons.Rounded.Search,contentDescription=null,modifier=Modifier.size(24.dp))
+            }
+            Spacer(Modifier.weight(1f))
+            Row(
+                Modifier.padding(start=8.dp,end=8.dp),
+                verticalAlignment=Alignment.CenterVertically,
+                horizontalArrangement=Arrangement.spacedBy(6.dp)
+            ){
+                HomeTopCountChip(count)
+                HomeTopStatusFilterButton(filter,onFilter)
+                HomeTopSortButton(sortMode,onSort)
+            }
+            Text(
+                "SIMJ",
+                style=MaterialTheme.typography.headlineSmall,
+                color=scheme.primary,
+                fontWeight=FontWeight.ExtraBold,
+                maxLines=1,
+                overflow=TextOverflow.Ellipsis
+            )
+        }
+        }
+    }
+    return
+    TextField(
+        value=search,
+        onValueChange=onSearch,
+        modifier=Modifier.fillMaxWidth().height(52.dp),
+        singleLine=true,
+        shape=RoundedCornerShape(26.dp),
+        placeholder={Text("搜索运营商、国家或号码",maxLines=1,overflow=TextOverflow.Ellipsis)},
+        leadingIcon={Icon(Icons.Rounded.Search,contentDescription=null)},
+        trailingIcon={ if(search.isNotBlank()) TextButton(onClick={onSearch("")}){Text("清除")} },
+        textStyle=MaterialTheme.typography.bodyLarge,
+        colors=TextFieldDefaults.colors(
+            focusedContainerColor=scheme.surfaceContainerHigh,
+            unfocusedContainerColor=scheme.surfaceContainerHigh,
+            focusedIndicatorColor=Color.Transparent,
+            unfocusedIndicatorColor=Color.Transparent,
+            cursorColor=scheme.primary,
+            focusedTextColor=scheme.onSurface,
+            unfocusedTextColor=scheme.onSurface,
+            focusedLeadingIconColor=scheme.primary,
+            unfocusedLeadingIconColor=scheme.onSurfaceVariant,
+            focusedPlaceholderColor=scheme.onSurfaceVariant,
+            unfocusedPlaceholderColor=scheme.onSurfaceVariant
+        )
+    )
+}
+
+@Composable fun HomeTopSortButton(sortMode:String,onSort:(String)->Unit){
+    val scheme=MaterialTheme.colorScheme
+    var open by remember { mutableStateOf(false) }
+    val options=listOf(
+        "自定义" to "自定义",
+        "添加日期" to "添加日期",
+        "快要到期" to "快要到期",
+        "首字母排序" to "首字母",
+        "保号周期" to "保号周期"
+    )
+    val isDueSoon = sortMode=="快要到期" || sortMode=="到期近"
+    val label=when(sortMode){
+        "添加日期" -> "日期"
+        "快要到期","到期近" -> "到期"
+        "首字母" -> "字母"
+        "保号周期" -> "周期"
+        else -> "排序"
+    }
+    Box{
+        HomeTopFilterChip(
+            text=label,
+            selected=sortMode!="自定义",
+            accent=scheme.secondary
+        ){ open=true }
+        DropdownMenu(
+            expanded=open,
+            onDismissRequest={open=false},
+            containerColor=scheme.surfaceContainerHigh,
+            tonalElevation=6.dp,
+            shadowElevation=10.dp,
+            shape=RoundedCornerShape(22.dp)
+        ){
+            options.forEach{ item->
+                val selected = sortMode==item.second || (isDueSoon && item.second=="快要到期")
+                DropdownMenuItem(
+                    text={
+                        Text(
+                            item.first,
+                            fontWeight=if(selected) FontWeight.ExtraBold else FontWeight.SemiBold
+                        )
+                    },
+                    leadingIcon={
+                        if(selected) Icon(Icons.Rounded.Check,contentDescription=null,tint=scheme.secondary)
+                    },
+                    onClick={
+                        open=false
+                        onSort(item.second)
+                    }
+                )
+            }
+        }
+    }
+}
+
+@Composable fun HomeTopStatusFilterButton(filter:String,onFilter:(String)->Unit){
+    val scheme=MaterialTheme.colorScheme
+    var open by remember { mutableStateOf(false) }
+    val options=listOf(
+        "全部" to "全部",
+        "正常" to "正常",
+        "快要到期" to "即将到期",
+        "已到期" to "已过期"
+    )
+    val label=when(filter){
+        "正常" -> "正常"
+        "即将到期" -> "快到期"
+        "已过期" -> "已到期"
+        else -> "筛选"
+    }
+    Box{
+        HomeTopFilterChip(
+            text=label,
+            selected=filter!="全部"
+        ){ open=true }
+        DropdownMenu(
+            expanded=open,
+            onDismissRequest={open=false},
+            containerColor=scheme.surfaceContainerHigh,
+            tonalElevation=6.dp,
+            shadowElevation=10.dp,
+            shape=RoundedCornerShape(22.dp)
+        ){
+            options.forEach{ item->
+                DropdownMenuItem(
+                    text={
+                        Text(
+                            item.first,
+                            fontWeight=if(filter==item.second) FontWeight.ExtraBold else FontWeight.SemiBold
+                        )
+                    },
+                    leadingIcon={
+                        if(filter==item.second) Icon(Icons.Rounded.Check,contentDescription=null,tint=scheme.primary)
+                    },
+                    onClick={
+                        open=false
+                        onFilter(item.second)
+                    }
+                )
+            }
+        }
+    }
+}
+
+@Composable fun HomeTopCountChip(count:Int){
+    val scheme=MaterialTheme.colorScheme
+    Box(
+        Modifier
+            .height(34.dp)
+            .clip(RoundedCornerShape(17.dp))
+            .background(scheme.tertiaryContainer)
+            .padding(horizontal=11.dp),
+        contentAlignment=Alignment.Center
+    ){
+        Text("${count}张",fontSize=12.sp,fontWeight=FontWeight.ExtraBold,color=scheme.onTertiaryContainer,maxLines=1)
+    }
+}
+
+@Composable fun HomeTopFilterChip(
+    text:String,
+    selected:Boolean,
+    accent:Color=MaterialTheme.colorScheme.primary,
+    onClick:()->Unit
+){
+    val scheme=MaterialTheme.colorScheme
+    val shape=RoundedCornerShape(17.dp)
+    val container=if(selected) accent.copy(alpha=.18f) else scheme.surfaceContainerHigh.copy(alpha=.9f)
+    val content=if(selected) accent else scheme.onSurfaceVariant
+    Box(
+        Modifier
+            .height(34.dp)
+            .clip(shape)
+            .background(container)
+            .border(.8.dp,if(selected) accent.copy(alpha=.48f) else scheme.outlineVariant.copy(alpha=.52f),shape)
+            .motionClickable(pressedScale=.95f){onClick()}
+            .padding(horizontal=11.dp),
+        contentAlignment=Alignment.Center
+    ){
+        Text(text,fontSize=12.sp,fontWeight=FontWeight.Bold,color=content,maxLines=1,overflow=TextOverflow.Ellipsis)
+    }
+}
+
+@Composable fun Home(ctx:Context,records:List<PhoneNumberRecord>,settings:App设置,search:String,onSearch:(String)->Unit,filter:String,sortMode:String,on筛选:(String)->Unit,on排序:(String)->Unit,onAdd:()->Unit,on编辑:(PhoneNumberRecord)->Unit,onDel:(PhoneNumberRecord)->Unit,onDial:(PhoneNumberRecord)->Unit,onTraffic:(PhoneNumberRecord)->Unit,onKeep:(PhoneNumberRecord,Int)->Unit,onReorder:(List<String>)->Unit={}){
     val today=LocalDate.now()
     fun daysOf(r:PhoneNumberRecord)=runCatching{LocalDate.parse(r.expireDate).toEpochDay()-today.toEpochDay()}.getOrNull()
     val q=search.trim().lowercase()
@@ -1210,7 +2189,20 @@ object OperatorLogoAssets {
         ok && (q.isEmpty() || (r.number+r.operator+r.countryName+r.countryCode+r.note).lowercase().contains(q))
     }
     val customSorted=filtered.sortedWith(compareBy<PhoneNumberRecord>{ val i=orderedIds.indexOf(it.id); if(i>=0) i else Int.MAX_VALUE }.thenBy{ if(it.sortOrder>0) it.sortOrder else Int.MAX_VALUE })
-    val shown=if(sorting) customSorted else when(sortMode){"到期远"->filtered.sortedByDescending{ daysOf(it) ?: Long.MIN_VALUE };"到期近"->filtered.sortedBy{ daysOf(it) ?: Long.MAX_VALUE };else->customSorted}
+    val titleCollator = remember { java.text.Collator.getInstance(java.util.Locale.CHINA) }
+    fun createdDay(r:PhoneNumberRecord)=runCatching{LocalDate.parse(r.createdAt).toEpochDay()}.getOrDefault(Long.MIN_VALUE)
+    fun sortTitle(r:PhoneNumberRecord)=r.operator.ifBlank{r.countryName}.ifBlank{r.number}.ifBlank{r.countryCode}
+    val shown=if(sorting) customSorted else when(sortMode){
+        "添加日期"->filtered.sortedByDescending{ createdDay(it) }
+        "快要到期","到期近"->filtered.sortedBy{ daysOf(it) ?: Long.MAX_VALUE }
+        "到期远"->filtered.sortedByDescending{ daysOf(it) ?: Long.MIN_VALUE }
+        "首字母"->filtered.sortedWith{ a,b ->
+            val primary = titleCollator.compare(sortTitle(a),sortTitle(b))
+            if(primary!=0) primary else createdDay(b).compareTo(createdDay(a))
+        }
+        "保号周期"->filtered.sortedWith(compareBy<PhoneNumberRecord>{ if(it.longTerm) Int.MAX_VALUE else it.cycleDays.coerceAtLeast(0) }.thenBy{ sortTitle(it) })
+        else->customSorted
+    }
     val lazyListState = rememberLazyListState()
     val reorderableLazyListState = rememberReorderableLazyListState(lazyListState) { from, to ->
         if(!sorting) return@rememberReorderableLazyListState
@@ -1224,17 +2216,44 @@ object OperatorLogoAssets {
     }
     Box(Modifier.fillMaxSize()){
         AppBackground(settings)
-        LazyColumn(state=lazyListState,modifier=Modifier.fillMaxSize().padding(horizontal=22.dp),verticalArrangement=Arrangement.spacedBy(9.dp)){
+        val topPadding = (WindowInsets.statusBars.asPaddingValues().calculateTopPadding() - 12.dp).coerceAtLeast(12.dp)
+        LazyColumn(state=lazyListState,modifier=Modifier.fillMaxSize().padding(horizontal=20.dp),contentPadding=PaddingValues(top=topPadding),verticalArrangement=Arrangement.spacedBy(12.dp)){
             item{
-                if(sorting){
-                    Row(Modifier.fillMaxWidth().padding(top=4.dp,bottom=2.dp),verticalAlignment=Alignment.CenterVertically){
-                        Text("排序中",fontSize=15.sp,fontWeight=FontWeight.SemiBold,color=dk(Color(0xFFE5E5E7),Color(0xFF111827)),modifier=Modifier.weight(1f))
-                        Text("完成",fontSize=15.sp,fontWeight=FontWeight.SemiBold,color=Color(0xFF007AFF),modifier=Modifier.clickable{ sorting=false; onReorder(orderedIds) }.padding(horizontal=8.dp,vertical=6.dp))
-                    }
-                }else FilterToolRow(filter,sortMode,on筛选,on排序,shown.size)
+                ExpressiveInlineSearch(search,onSearch,shown.size,filter,sortMode,on筛选,on排序)
             }
-            if(shown.isEmpty()) item{ Box(Modifier.fillMaxWidth().height(260.dp),contentAlignment=Alignment.Center){ Column(horizontalAlignment=Alignment.CenterHorizontally){Text(L("暂无号码"),fontSize=18.sp,fontWeight=FontWeight.SemiBold);Text(L("点击右下角添加号码"),fontSize=13.sp,color=Color(0xFF8E8E93))} } }
-            else items(shown,key={it.id}){ r->
+            if(false) item{
+                HomeSummaryHeader(records,settings)
+            }
+            if(sorting) item{
+                Surface(
+                    shape=RoundedCornerShape(22.dp),
+                    color=MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha=.94f),
+                    tonalElevation=3.dp,
+                    shadowElevation=2.dp,
+                    border=BorderStroke(.8.dp,MaterialTheme.colorScheme.outlineVariant.copy(alpha=.55f)),
+                    modifier=Modifier.fillMaxWidth()
+                ){
+                    Row(
+                        Modifier.fillMaxWidth().padding(horizontal=14.dp,vertical=10.dp),
+                        verticalAlignment=Alignment.CenterVertically
+                    ){
+                        Column(Modifier.weight(1f)){
+                            Text("排序中",fontSize=15.sp,fontWeight=FontWeight.ExtraBold,color=MaterialTheme.colorScheme.onSurface)
+                            Text("拖动卡片调整顺序",fontSize=12.sp,color=MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                        Text("取消",fontSize=14.sp,fontWeight=FontWeight.SemiBold,color=MaterialTheme.colorScheme.onSurfaceVariant,modifier=Modifier.motionClickable{
+                            sorting=false
+                            orderedIds=records.sortedBy{ if(it.sortOrder>0) it.sortOrder else Int.MAX_VALUE }.map{it.id}
+                        }.padding(horizontal=10.dp,vertical=8.dp))
+                        Text("完成",fontSize=14.sp,fontWeight=FontWeight.ExtraBold,color=MaterialTheme.colorScheme.primary,modifier=Modifier.motionClickable{
+                            sorting=false
+                            onReorder(orderedIds)
+                        }.padding(horizontal=10.dp,vertical=8.dp))
+                    }
+                }
+            }
+            if(shown.isEmpty()) item{ Box(Modifier.fillMaxWidth().height(300.dp),contentAlignment=Alignment.Center){ ExpressiveEmptyState() } }
+            else items(shown,key={it.id},contentType={"sim-card"}){ r->
                 if(sorting){
                     ReorderableItem(reorderableLazyListState, key=r.id) { isDragging ->
                         CompactSimCard(r,on编辑,onDel,onTraffic,onKeep,daysOf(r),settings.remind天,settings.showFlag,settings.dark,settings.bankCardStyle,true,{},Modifier.longPressDraggableHandle(),isDragging)
@@ -1245,10 +2264,141 @@ object OperatorLogoAssets {
             }
             item{ Spacer(Modifier.height(90.dp)) }
         }
-        if(!sorting){
-            Box(Modifier.align(Alignment.BottomEnd).padding(end=20.dp,bottom=86.dp).size(56.dp)){
-                FloatingActionButton(onClick=onAdd,containerColor=Color(0xFF3B82F6),contentColor=Color.White,shape=RoundedCornerShape(20.dp),modifier=Modifier.fillMaxSize()){Text("＋",fontSize=27.sp,fontWeight=FontWeight.Medium)}
+        if(false && !sorting){
+            Box(Modifier.align(Alignment.BottomEnd).padding(end=20.dp,bottom=90.dp)){
+                ExtendedFloatingActionButton(
+                    onClick=onAdd,
+                    containerColor=MaterialTheme.colorScheme.primaryContainer,
+                    contentColor=MaterialTheme.colorScheme.onPrimaryContainer,
+                    shape=RoundedCornerShape(22.dp),
+                    icon={Text("＋",fontSize=22.sp,fontWeight=FontWeight.Medium)},
+                    text={Text(L("号码"),fontWeight=FontWeight.SemiBold)}
+                )
             }
+        }
+    }
+}
+
+@Composable fun CompactExpressiveHomeSummary(records:List<PhoneNumberRecord>,settings:App设置){
+    val scheme=MaterialTheme.colorScheme
+    val today=LocalDate.now()
+    fun daysOf(r:PhoneNumberRecord)=runCatching{LocalDate.parse(r.expireDate).toEpochDay()-today.toEpochDay()}.getOrNull()
+    val expired=records.count{ (daysOf(it) ?: Long.MAX_VALUE) < 0 }
+    val dueSoon=records.count{ val d=daysOf(it); d!=null && d in 0..settings.remind天}
+    val normal=(records.size-expired-dueSoon).coerceAtLeast(0)
+    Surface(
+        shape=RoundedCornerShape(topStart=30.dp,topEnd=18.dp,bottomStart=18.dp,bottomEnd=30.dp),
+        color=Color.Transparent,
+        tonalElevation=3.dp,
+        shadowElevation=1.dp,
+        modifier=Modifier.fillMaxWidth().padding(top=8.dp)
+    ){
+        Row(
+            Modifier
+                .background(Brush.linearGradient(listOf(scheme.primaryContainer,scheme.tertiaryContainer.copy(alpha=.72f),scheme.secondaryContainer.copy(alpha=.84f))))
+                .padding(horizontal=14.dp,vertical=12.dp),
+            verticalAlignment=Alignment.CenterVertically,
+            horizontalArrangement=Arrangement.spacedBy(8.dp)
+        ){
+            Column(Modifier.weight(1f),verticalArrangement=Arrangement.spacedBy(0.dp)){
+                Text("号码概览",style=MaterialTheme.typography.titleMedium,color=scheme.onPrimaryContainer,maxLines=1,overflow=TextOverflow.Ellipsis)
+                Text("共 ${records.size} 张 SIM",style=MaterialTheme.typography.labelMedium,color=scheme.onPrimaryContainer.copy(alpha=.70f),maxLines=1,overflow=TextOverflow.Ellipsis)
+            }
+            CompactMetric("正常",normal,scheme.secondary,Modifier.weight(.72f))
+            CompactMetric("临近",dueSoon,scheme.tertiary,Modifier.weight(.72f))
+            CompactMetric("过期",expired,scheme.error,Modifier.weight(.72f))
+        }
+    }
+}
+
+@Composable fun CompactMetric(label:String,value:Int,color:Color,modifier:Modifier=Modifier){
+    Surface(shape=RoundedCornerShape(18.dp),color=MaterialTheme.colorScheme.surface.copy(alpha=.72f),modifier=modifier){
+        Column(Modifier.padding(horizontal=8.dp,vertical=8.dp),horizontalAlignment=Alignment.CenterHorizontally,verticalArrangement=Arrangement.spacedBy(0.dp)){
+            Text(value.toString(),fontSize=18.sp,fontWeight=FontWeight.ExtraBold,color=color,maxLines=1)
+            Text(label,fontSize=10.sp,fontWeight=FontWeight.Bold,color=MaterialTheme.colorScheme.onSurfaceVariant,maxLines=1,overflow=TextOverflow.Ellipsis)
+        }
+    }
+}
+
+@Composable fun ExpressiveHomeSummary(records:List<PhoneNumberRecord>,settings:App设置){
+    CompactExpressiveHomeSummary(records,settings)
+    return
+    val scheme=MaterialTheme.colorScheme
+    val today=LocalDate.now()
+    fun daysOf(r:PhoneNumberRecord)=runCatching{LocalDate.parse(r.expireDate).toEpochDay()-today.toEpochDay()}.getOrNull()
+    val expired=records.count{ (daysOf(it) ?: Long.MAX_VALUE) < 0 }
+    val dueSoon=records.count{ val d=daysOf(it); d!=null && d in 0..settings.remind天}
+    val normal=(records.size-expired-dueSoon).coerceAtLeast(0)
+    val summaryBrush = Brush.linearGradient(listOf(scheme.secondaryContainer,scheme.surfaceContainerHighest,scheme.tertiaryContainer.copy(alpha=.78f),scheme.primaryContainer))
+    Surface(
+        shape=RoundedCornerShape(topStart=42.dp,topEnd=24.dp,bottomStart=26.dp,bottomEnd=42.dp),
+        color=Color.Transparent,
+        tonalElevation=4.dp,
+        shadowElevation=1.dp,
+        modifier=Modifier.fillMaxWidth().padding(top=12.dp)
+    ){
+        Column(Modifier.background(summaryBrush).padding(18.dp),verticalArrangement=Arrangement.spacedBy(14.dp)){
+            Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(14.dp)){
+                Column(Modifier.weight(1f),verticalArrangement=Arrangement.spacedBy(4.dp)){
+                    Text("SIM 号码库",style=MaterialTheme.typography.labelLarge,color=scheme.primary)
+                    Text("号码概览",style=MaterialTheme.typography.titleLarge,color=scheme.onSurface,maxLines=1,overflow=TextOverflow.Ellipsis)
+                    Text("续费周期、运营商和余额",style=MaterialTheme.typography.bodyMedium,color=scheme.onSurfaceVariant,maxLines=1,overflow=TextOverflow.Ellipsis)
+                }
+                Surface(shape=RoundedCornerShape(26.dp),color=scheme.primaryContainer,contentColor=scheme.onPrimaryContainer){
+                    Text(records.size.toString(),style=MaterialTheme.typography.displaySmall,modifier=Modifier.padding(horizontal=18.dp,vertical=10.dp))
+                }
+            }
+            Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(8.dp)){
+                SummaryMetric("正常",normal.toString(),scheme.secondary,Modifier.weight(1f))
+                SummaryMetric("临近",dueSoon.toString(),scheme.tertiary,Modifier.weight(1f))
+                SummaryMetric("过期",expired.toString(),scheme.error,Modifier.weight(1f))
+            }
+        }
+    }
+}
+
+@Composable fun HomeSummaryHeader(records:List<PhoneNumberRecord>,settings:App设置){
+    ExpressiveHomeSummary(records,settings)
+    return
+    val scheme=MaterialTheme.colorScheme
+    val today=LocalDate.now()
+    fun daysOf(r:PhoneNumberRecord)=runCatching{LocalDate.parse(r.expireDate).toEpochDay()-today.toEpochDay()}.getOrNull()
+    val expired=records.count{ (daysOf(it) ?: Long.MAX_VALUE) < 0 }
+    val dueSoon=records.count{ val d=daysOf(it); d!=null && d in 0..settings.remind天 }
+    val normal=(records.size-expired-dueSoon).coerceAtLeast(0)
+    Surface(
+        shape=RoundedCornerShape(30.dp),
+        color=scheme.primaryContainer,
+        tonalElevation=2.dp,
+        modifier=Modifier.fillMaxWidth().padding(top=12.dp)
+    ){
+        Box(Modifier.background(Brush.linearGradient(listOf(scheme.primaryContainer,scheme.tertiaryContainer,scheme.secondaryContainer))).padding(18.dp)){
+            Column(verticalArrangement=Arrangement.spacedBy(14.dp)){
+                Row(verticalAlignment=Alignment.CenterVertically){
+                    Column(Modifier.weight(1f),verticalArrangement=Arrangement.spacedBy(2.dp)){
+                        Text(L("号码"),style=MaterialTheme.typography.headlineSmall,color=scheme.onPrimaryContainer)
+                        Text(L("搜索运营商、国家或号码"),style=MaterialTheme.typography.bodyMedium,color=scheme.onPrimaryContainer.copy(alpha=.72f),maxLines=1,overflow=TextOverflow.Ellipsis)
+                    }
+                    Box(Modifier.size(52.dp).clip(RoundedCornerShape(18.dp)).background(scheme.surface.copy(alpha=.64f)),contentAlignment=Alignment.Center){
+                        Text(records.size.toString(),fontSize=22.sp,fontWeight=FontWeight.Bold,color=scheme.primary)
+                    }
+                }
+                Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(8.dp)){
+                    SummaryMetric(L("全部"),records.size.toString(),scheme.primary,Modifier.weight(1f))
+                    SummaryMetric(L("正常"),normal.toString(),scheme.secondary,Modifier.weight(1f))
+                    SummaryMetric(L("即将到期"),dueSoon.toString(),Color(0xFFB06000),Modifier.weight(1f))
+                    SummaryMetric(L("已过期"),expired.toString(),scheme.error,Modifier.weight(1f))
+                }
+            }
+        }
+    }
+}
+
+@Composable fun SummaryMetric(label:String,value:String,color:Color,modifier:Modifier=Modifier){
+    Surface(shape=RoundedCornerShape(18.dp),color=MaterialTheme.colorScheme.surface.copy(alpha=.72f),modifier=modifier){
+        Column(Modifier.padding(horizontal=10.dp,vertical=9.dp),horizontalAlignment=Alignment.CenterHorizontally,verticalArrangement=Arrangement.spacedBy(2.dp)){
+            Text(value,fontSize=18.sp,fontWeight=FontWeight.Bold,color=color,maxLines=1)
+            Text(label,fontSize=10.sp,fontWeight=FontWeight.SemiBold,color=MaterialTheme.colorScheme.onSurfaceVariant,maxLines=1,overflow=TextOverflow.Ellipsis)
         }
     }
 }
@@ -1280,7 +2430,7 @@ object OperatorLogoAssets {
                     Text(L("到期")+"：${r.expireDate} · "+expireText(LocalAppLanguage.current,days),fontSize=12.sp,color=color)
                     Text(L("备注")+"：${r.note.ifBlank{L("预付费 / 保号套餐")}}",fontSize=10.sp,color=Color(0xFF6B7280),maxLines=1,overflow=TextOverflow.Ellipsis)
                 }
-                Box(Modifier.size(36.dp).clip(RoundedCornerShape(18.dp)).background(Color(0xFF007AFF)).clickable{on编辑(r)},contentAlignment=Alignment.Center){Text("›",color=Color.White,fontSize=25.sp)}
+                Box(Modifier.size(36.dp).clip(RoundedCornerShape(18.dp)).background(Color(0xFF007AFF)).motionClickable{on编辑(r)},contentAlignment=Alignment.Center){Text("›",color=Color.White,fontSize=25.sp)}
             }
             FlowRow(horizontalArrangement=Arrangement.spacedBy(8.dp),verticalArrangement=Arrangement.spacedBy(6.dp),modifier=Modifier.fillMaxWidth()){
                 SmallActionPill(L("保号"),Color(0xFF007AFF)){keepDlg=true}
@@ -1331,7 +2481,7 @@ object OperatorLogoAssets {
     var keepDlg by remember{ mutableStateOf(false) }
     Card(shape=RoundedCornerShape(20.dp),colors=CardDefaults.cardColors(containerColor=Color.White),elevation=CardDefaults.cardElevation(5.dp),modifier=Modifier.fillMaxWidth()){
         Column(Modifier.padding(horizontal=14.dp,vertical=12.dp),verticalArrangement=Arrangement.spacedBy(8.dp)){
-            Row(verticalAlignment=Alignment.CenterVertically,modifier=Modifier.clickable{on编辑(r)}){
+            Row(verticalAlignment=Alignment.CenterVertically,modifier=Modifier.motionClickable(pressedScale=.985f){on编辑(r)}){
                 Box(Modifier.size(42.dp).clip(RoundedCornerShape(14.dp)).background(Color(0xFFF1F5FA)),contentAlignment=Alignment.Center){Text(r.flag,fontSize=25.sp)}
                 Spacer(Modifier.width(10.dp))
                 Column(Modifier.weight(1f),verticalArrangement=Arrangement.spacedBy(2.dp)){
@@ -1381,7 +2531,7 @@ object OperatorLogoAssets {
 @Composable fun KeepPage(records:List<PhoneNumberRecord>,onKeep:(PhoneNumberRecord,Int)->Unit){
     var selectedId by remember{ mutableStateOf(records.firstOrNull()?.id ?: "") }; var months by remember{ mutableStateOf(30) }
     val r=records.firstOrNull{it.id==selectedId} ?: records.firstOrNull()
-    Column(Modifier.fillMaxSize().background(Color(0xFFF2F3F7)).padding(20.dp),verticalArrangement=Arrangement.spacedBy(14.dp)){
+    Column(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background).padding(20.dp),verticalArrangement=Arrangement.spacedBy(14.dp)){
         if(r==null){Box(Modifier.fillMaxSize(),contentAlignment=Alignment.Center){Text(L("暂无号码"))}} else {
             IOSSection(L("选择号码")){ records.forEach{ item-> KeepChoice(item.operator.ifBlank{item.countryName}+"  "+item.countryCode+" "+maskNumber(formatNumber(item.number)), selectedId==item.id){selectedId=item.id} } }
             IOSSection(L("选择保号周期")){ listOf(7 to "7",15 to "15",30 to "30",90 to "90",180 to "180",365 to "365").forEach{(m,label)-> KeepChoice(label, months==m){months=m} } }
@@ -1389,7 +2539,7 @@ object OperatorLogoAssets {
         }
     }
 }
-@Composable fun KeepChoice(text:String,selected:Boolean,onClick:()->Unit){ Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(if(selected) dk(Color(0xFF1C2333),Color(0xFFEAF3FF)) else dk(Color(0xFF1C1C1E),Color.White)).clickable{onClick()}.padding(14.dp),verticalAlignment=Alignment.CenterVertically){Text(if(selected)"●" else "○",color=Color(0xFF007AFF));Spacer(Modifier.width(10.dp));Text(text,fontSize=16.sp,fontWeight=if(selected)FontWeight.Bold else FontWeight.Normal)} }
+@Composable fun KeepChoice(text:String,selected:Boolean,onClick:()->Unit){ Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(if(selected) dk(Color(0xFF1C2333),Color(0xFFEAF3FF)) else dk(Color(0xFF1C1C1E),Color.White)).motionClickable(pressedScale=.985f){onClick()}.padding(14.dp),verticalAlignment=Alignment.CenterVertically){Text(if(selected)"●" else "○",color=Color(0xFF007AFF));Spacer(Modifier.width(10.dp));Text(text,fontSize=16.sp,fontWeight=if(selected)FontWeight.Bold else FontWeight.Normal)} }
 
 
 @Composable fun ToolsPage(ctx:Context,settings:App设置,records:List<PhoneNumberRecord>,onTraffic:(PhoneNumberRecord)->Unit,onDial:(PhoneNumberRecord)->Unit,onExportJson:()->Unit,onExportCsv:()->Unit,onImportText:(String)->Unit,onImportSimHub:(List<PhoneNumberRecord>) ->Unit={_->}){
@@ -1447,11 +2597,12 @@ object OperatorLogoAssets {
 }
 
 @Composable fun ToolRow(iconType:String,title:String,sub:String,onClick:()->Unit){
-    Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).clickable{onClick()}.padding(horizontal=6.dp,vertical=4.dp),verticalAlignment=Alignment.CenterVertically){
-        Box(Modifier.size(38.dp).clip(RoundedCornerShape(12.dp)).background(dk(Color(0xFF1C2333),Color(0xFFF2F6FF))),contentAlignment=Alignment.Center){ ToolLineIcon(iconType,Color(0xFF007AFF)) }
+    val scheme=MaterialTheme.colorScheme
+    Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).motionClickable(pressedScale=.985f){onClick()}.padding(horizontal=8.dp,vertical=6.dp),verticalAlignment=Alignment.CenterVertically){
+        Box(Modifier.size(42.dp).clip(RoundedCornerShape(14.dp)).background(scheme.primaryContainer),contentAlignment=Alignment.Center){ ToolLineIcon(iconType,scheme.onPrimaryContainer) }
         Spacer(Modifier.width(10.dp))
-        Column(Modifier.weight(1f)){Text(title,fontSize=16.sp,fontWeight=FontWeight.SemiBold,color=dk(Color(0xFFE5E5E7),Color(0xFF111827)));Text(sub,fontSize=12.sp,color=Color(0xFF8A94A6),maxLines=1,overflow=TextOverflow.Ellipsis)}
-        Text("›",fontSize=24.sp,color=dk(Color(0xFF48484A),Color(0xFFC7C7CC)))
+        Column(Modifier.weight(1f)){Text(title,fontSize=16.sp,fontWeight=FontWeight.SemiBold,color=scheme.onSurface);Text(sub,fontSize=12.sp,color=scheme.onSurfaceVariant,maxLines=1,overflow=TextOverflow.Ellipsis)}
+        Text("›",fontSize=24.sp,color=scheme.onSurfaceVariant)
     }
 }
 
@@ -1505,7 +2656,7 @@ object OperatorLogoAssets {
                 if(records.isEmpty()) Box(Modifier.fillMaxWidth().height(120.dp),contentAlignment=Alignment.Center){Text(L("暂无号码，请先添加号码。"),color=Color(0xFF8A94A6))}
                 else LazyColumn(Modifier.heightIn(max=420.dp),verticalArrangement=Arrangement.spacedBy(8.dp)){
                     items(records){ r ->
-                        Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(dk(Color(0xFF1C1C1E),Color.White)).clickable{onPick(r)}.padding(13.dp),verticalAlignment=Alignment.CenterVertically){
+                        Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(dk(Color(0xFF1C1C1E),Color.White)).motionClickable(pressedScale=.985f){onPick(r)}.padding(13.dp),verticalAlignment=Alignment.CenterVertically){
                             Text(r.flag,fontSize=25.sp); Spacer(Modifier.width(10.dp)); Column(Modifier.weight(1f)){Text(r.operator.ifBlank{r.countryName},fontWeight=FontWeight.SemiBold,color=dk(Color(0xFFE5E5E7),Color(0xFF111827))); Text("${r.countryCode} ${maskNumber(formatNumber(r.number))}",fontSize=12.sp,color=Color(0xFF6B7280))}; Text("›",fontSize=24.sp,color=dk(Color(0xFF48484A),Color(0xFFC7C7CC)))
                         }
                     }
@@ -1590,7 +2741,7 @@ object OperatorLogoAssets {
     if(confirm删除) IOSConfirmDialog(L("删除号码？"),L("删除")+" ${r.countryCode} ${formatNumber(r.number)} "+L("删除后不可恢复"),true,{confirm删除=false},{confirm删除=false;onDel(r)})
 }
 
-@Composable fun MenuRow(icon:String,title:String,color:Color,onClick:()->Unit){ Row(Modifier.fillMaxWidth().clickable{onClick()}.padding(horizontal=16.dp,vertical=14.dp),verticalAlignment=Alignment.CenterVertically){Text(icon,fontSize=18.sp); Spacer(Modifier.width(10.dp)); Text(title,fontSize=16.sp,color=color,fontWeight=if(color==Color(0xFFFF3B30)) FontWeight.Bold else FontWeight.Normal)} }
+@Composable fun MenuRow(icon:String,title:String,color:Color,onClick:()->Unit){ Row(Modifier.fillMaxWidth().motionClickable(pressedScale=.985f){onClick()}.padding(horizontal=16.dp,vertical=14.dp),verticalAlignment=Alignment.CenterVertically){Text(icon,fontSize=18.sp); Spacer(Modifier.width(10.dp)); Text(title,fontSize=16.sp,color=color,fontWeight=if(color==Color(0xFFFF3B30)) FontWeight.Bold else FontWeight.Normal)} }
 fun maskNumber(n:String):String{ val ds=n.filter{it.isDigit()}; return if(ds.length<=4) n else ds.take(4)+" •••• "+ds.takeLast(4) }
 fun fakeEidForCard(r:PhoneNumberRecord):String{ val seed=(r.id+r.number).hashCode().toString().filter{it.isDigit()}.padEnd(24,'0').take(24); return "89044000 ${seed.chunked(8).joinToString(" ")}" }
 
@@ -1744,11 +2895,65 @@ fun cardBackgroundPath(r:PhoneNumberRecord, iso:String, bankCardStyle:Boolean=fa
     Box(Modifier.fillMaxSize().background(dk(Color(0xFF0B0F17),Color(0xFFF2F3F7)))){
         Column(Modifier.fillMaxSize()){
             val editStatusBarTop = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
-            // Header: 关闭 / 编辑 eSIM / 完成
-            Row(Modifier.fillMaxWidth().padding(start=18.dp,end=18.dp,top=editStatusBarTop+8.dp,bottom=12.dp),horizontalArrangement=Arrangement.SpaceBetween,verticalAlignment=Alignment.CenterVertically){
-                TextButton(onClick=onDismiss,modifier=Modifier.height(36.dp).clip(RoundedCornerShape(12.dp)).background(dk(Color(0xFF2C2C2E).copy(alpha=.90f),Color.White.copy(alpha=.90f))).border(.7.dp,dk(Color(0xFF38383A).copy(alpha=.75f),Color.White.copy(alpha=.75f)),RoundedCornerShape(12.dp)),contentPadding=PaddingValues(horizontal=12.dp,vertical=0.dp)){Text(L("关闭"),color=Color(0xFF007AFF),fontWeight=FontWeight.SemiBold)}
-                Text(if(init.number.isBlank()) L("新增 eSIM") else L("编辑 eSIM"),fontSize=19.sp,fontWeight=FontWeight.Bold,color=dk(Color(0xFFE5E5E7),Color(0xFF111827)))
-                TextButton(onClick={onSave(r)},modifier=Modifier.height(36.dp).clip(RoundedCornerShape(12.dp)).background(Color(0xFF007AFF)),contentPadding=PaddingValues(horizontal=14.dp,vertical=0.dp)){Text(L("完成"),fontWeight=FontWeight.Bold,color=Color.White)}
+            val editScheme=MaterialTheme.colorScheme
+            val editHeaderShape=RoundedCornerShape(24.dp)
+            Surface(
+                shape=editHeaderShape,
+                color=editScheme.surface.copy(alpha=.9f),
+                tonalElevation=2.dp,
+                shadowElevation=1.dp,
+                modifier=Modifier
+                    .fillMaxWidth()
+                    .padding(start=18.dp,end=18.dp,top=editStatusBarTop+6.dp,bottom=10.dp)
+                    .border(.8.dp,editScheme.outlineVariant.copy(alpha=.48f),editHeaderShape)
+            ){
+                Row(
+                    Modifier
+                        .fillMaxWidth()
+                        .height(56.dp)
+                        .padding(start=8.dp,end=8.dp),
+                    horizontalArrangement=Arrangement.SpaceBetween,
+                    verticalAlignment=Alignment.CenterVertically
+                ){
+                    FilledTonalIconButton(
+                        onClick=onDismiss,
+                        modifier=Modifier.size(42.dp),
+                        shape=RoundedCornerShape(16.dp),
+                        colors=IconButtonDefaults.filledTonalIconButtonColors(
+                            containerColor=editScheme.surfaceContainerHighest,
+                            contentColor=editScheme.primary
+                        )
+                    ){
+                        Icon(Icons.Rounded.Close,contentDescription=L("关闭"),modifier=Modifier.size(20.dp))
+                    }
+                    Text(
+                        if(init.number.isBlank()) L("新增 eSIM") else L("编辑 eSIM"),
+                        fontSize=18.sp,
+                        lineHeight=22.sp,
+                        fontWeight=FontWeight.ExtraBold,
+                        color=editScheme.onSurface,
+                        maxLines=1,
+                        overflow=TextOverflow.Ellipsis,
+                        modifier=Modifier
+                            .weight(1f)
+                            .padding(horizontal=12.dp),
+                        textAlign=TextAlign.Center
+                    )
+                    Button(
+                        onClick={onSave(r)},
+                        modifier=Modifier.height(42.dp),
+                        shape=RoundedCornerShape(16.dp),
+                        contentPadding=PaddingValues(start=13.dp,end=15.dp),
+                        colors=ButtonDefaults.buttonColors(
+                            containerColor=editScheme.primary,
+                            contentColor=editScheme.onPrimary
+                        )
+                    ){
+                        Icon(Icons.Rounded.Check,contentDescription=null,modifier=Modifier.size(18.dp))
+                        Spacer(Modifier.width(5.dp))
+                        Text(L("完成"),fontSize=14.sp,lineHeight=18.sp,fontWeight=FontWeight.Bold)
+                    }
+                }
             }
             LazyColumn(Modifier.fillMaxSize().padding(horizontal=18.dp),verticalArrangement=Arrangement.spacedBy(14.dp)){
 
@@ -1880,8 +3085,8 @@ fun cardBackgroundPath(r:PhoneNumberRecord, iso:String, bankCardStyle:Boolean=fa
                         IOSDividerLine()
                         IOSField(L("确认码（选填）"),"",{},L("Confirmation Code"))
                         IOSDividerLine()
-                        Text(L("扫描二维码"),fontSize=14.sp,color=Color(0xFF007AFF),modifier=Modifier.clickable{qrDlg=true})
-                        Text(L("从相册读取二维码"),fontSize=14.sp,color=Color(0xFF007AFF),modifier=Modifier.clickable{albumLauncher.launch("image/*")})
+                        Text(L("扫描二维码"),fontSize=14.sp,color=Color(0xFF007AFF),modifier=Modifier.motionClickable{qrDlg=true})
+                        Text(L("从相册读取二维码"),fontSize=14.sp,color=Color(0xFF007AFF),modifier=Modifier.motionClickable{albumLauncher.launch("image/*")})
                         if(qrText.isNotBlank()){
                             IOSDividerLine()
                             Text("✅ "+L("激活信息已填写"),fontSize=13.sp,color=Color(0xFF34C759))
@@ -1967,12 +3172,16 @@ fun cardBackgroundPath(r:PhoneNumberRecord, iso:String, bankCardStyle:Boolean=fa
 }
 
 @Composable fun IOSValueRow(title:String,value:String,onClick:()->Unit){
-    Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).clickable{onClick()}.padding(vertical=4.dp),verticalAlignment=Alignment.CenterVertically){
+    ModernIOSValueRow(title,value,onClick)
+    return
+    Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).motionClickable(pressedScale=.985f){onClick()}.padding(vertical=4.dp),verticalAlignment=Alignment.CenterVertically){
         Text(title,fontSize=15.sp,color=dk(Color(0xFFE5E5E7),Color(0xFF111827)),modifier=Modifier.width(92.dp)); Text(value,fontSize=15.sp,color=dk(Color(0xFFD1D5DB),Color(0xFF374151)),modifier=Modifier.weight(1f),maxLines=1,overflow=TextOverflow.Ellipsis); Text("›",fontSize=24.sp,color=dk(Color(0xFF48484A),Color(0xFFC7C7CC)))
     }
 }
 
 @Composable fun IOSField(label:String,value:String,onValue:(String)->Unit,placeholder:String,singleLine:Boolean=true,minLines:Int=1){
+    ModernIOSField(label,value,onValue,placeholder,singleLine,minLines)
+    return
     Column(verticalArrangement=Arrangement.spacedBy(5.dp)){
         Text(label,fontSize=13.sp,color=Color(0xFF8A94A6),modifier=Modifier.padding(start=2.dp))
         TextField(value=value,onValueChange=onValue,modifier=Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)),singleLine=singleLine,minLines=minLines,placeholder={Text(placeholder,fontSize=13.sp,color=dk(Color(0xFF636366),Color(0xFFB0B7C3)),maxLines=1,overflow=TextOverflow.Ellipsis)},colors=TextFieldDefaults.colors(focusedContainerColor=dk(Color(0xFF1C1C1E),Color(0xFFF7F8FA)),unfocusedContainerColor=dk(Color(0xFF1C1C1E),Color(0xFFF7F8FA)),focusedIndicatorColor=Color.Transparent,unfocusedIndicatorColor=Color.Transparent),textStyle=androidx.compose.ui.text.TextStyle(fontSize=15.sp,color=dk(Color(0xFFE5E5E7),Color(0xFF111827))))
@@ -2057,6 +3266,32 @@ fun cardBackgroundPath(r:PhoneNumberRecord, iso:String, bankCardStyle:Boolean=fa
 }
 
 @Composable fun DateBox(label:String,value:String,onValue:(String)->Unit,m:Modifier){
+    val scheme=MaterialTheme.colorScheme
+    val shape=RoundedCornerShape(16.dp)
+    Column(m,verticalArrangement=Arrangement.spacedBy(8.dp)){
+        Text(label,fontSize=13.sp,lineHeight=16.sp,fontWeight=FontWeight.Bold,color=scheme.onSurfaceVariant,modifier=Modifier.padding(start=2.dp))
+        TextField(
+            value=value,
+            onValueChange=onValue,
+            singleLine=true,
+            modifier=Modifier
+                .fillMaxWidth()
+                .height(58.dp)
+                .border(1.dp,scheme.outlineVariant.copy(alpha=.54f),shape)
+                .clip(shape),
+            colors=TextFieldDefaults.colors(
+                focusedContainerColor=scheme.surface,
+                unfocusedContainerColor=scheme.surface,
+                focusedIndicatorColor=Color.Transparent,
+                unfocusedIndicatorColor=Color.Transparent,
+                cursorColor=scheme.primary,
+                focusedTextColor=scheme.onSurface,
+                unfocusedTextColor=scheme.onSurface
+            ),
+            textStyle=TextStyle(fontSize=16.sp,lineHeight=22.sp,fontWeight=FontWeight.Medium,color=scheme.onSurface)
+        )
+    }
+    return
     Column(m,verticalArrangement=Arrangement.spacedBy(4.dp)){
         Text(label,fontSize=11.sp,color=Color(0xFF8A94A6))
         OutlinedTextField(value=value,onValueChange=onValue,singleLine=true,modifier=Modifier.fillMaxWidth().heightIn(min=56.dp),shape=RoundedCornerShape(12.dp),textStyle=androidx.compose.ui.text.TextStyle(fontSize=14.sp),colors=OutlinedTextFieldDefaults.colors(focusedBorderColor=dk(Color(0xFF38383A),Color(0xFFD1D5DB)),unfocusedBorderColor=dk(Color(0xFF38383A),Color(0xFFD1D5DB)),focusedContainerColor=dk(Color(0xFF1C1C1E),Color.White),unfocusedContainerColor=dk(Color(0xFF1C1C1E),Color.White)))
@@ -2064,7 +3299,21 @@ fun cardBackgroundPath(r:PhoneNumberRecord, iso:String, bankCardStyle:Boolean=fa
 }
 
 @Composable fun DateQuick(text:String,m:Modifier,onClick:()->Unit){
-    Box(m.height(34.dp).clip(RoundedCornerShape(11.dp)).background(dk(Color(0xFF1C2333),Color(0xFFF4F5F8))).clickable{onClick()},contentAlignment=Alignment.Center){Text(text,fontSize=12.sp,color=Color(0xFF007AFF),maxLines=1)}
+    val scheme=MaterialTheme.colorScheme
+    val shape=RoundedCornerShape(16.dp)
+    Box(
+        m
+            .height(40.dp)
+            .clip(shape)
+            .background(scheme.surfaceContainerHighest)
+            .border(1.dp,scheme.outlineVariant.copy(alpha=.62f),shape)
+            .motionClickable{onClick()},
+        contentAlignment=Alignment.Center
+    ){
+        Text(text,fontSize=13.sp,lineHeight=16.sp,fontWeight=FontWeight.Bold,color=scheme.primary,maxLines=1,overflow=TextOverflow.Ellipsis)
+    }
+    return
+    Box(m.height(34.dp).clip(RoundedCornerShape(11.dp)).background(dk(Color(0xFF1C2333),Color(0xFFF4F5F8))).motionClickable{onClick()},contentAlignment=Alignment.Center){Text(text,fontSize=12.sp,color=Color(0xFF007AFF),maxLines=1)}
 }
 
 @Composable fun FormSection(title:String, content:@Composable ColumnScope.()->Unit){
@@ -2090,7 +3339,7 @@ fun cardBackgroundPath(r:PhoneNumberRecord, iso:String, bankCardStyle:Boolean=fa
                 TextField(value=q,onValueChange={q=it},modifier=Modifier.fillMaxWidth().heightIn(min=36.dp).clip(RoundedCornerShape(12.dp)),singleLine=true,placeholder={Text(L("搜索国家 / 区号 / ISO"))},leadingIcon={Canvas(Modifier.size(16.dp)){drawCircle(Color(0xFF8E8E93),radius=size.width/2-1.dp.toPx(),style=Stroke(1.5.dp.toPx()));drawLine(Color(0xFF8E8E93),Offset(size.width*.65f,size.height*.65f),Offset(size.width*.85f,size.height*.85f),strokeWidth=1.5.dp.toPx())}},colors=TextFieldDefaults.colors(focusedContainerColor=dk(Color(0xFF2C2C2E),Color.White),unfocusedContainerColor=dk(Color(0xFF2C2C2E),Color.White),focusedIndicatorColor=Color.Transparent,unfocusedIndicatorColor=Color.Transparent))
                 LazyColumn(Modifier.heightIn(max=460.dp),verticalArrangement=Arrangement.spacedBy(7.dp)){
                     items(Countries.list.filter{it.name.contains(q,true)||it.code.contains(q)||it.iso.contains(q,true)}){ c->
-                        Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(15.dp)).background(dk(Color(0xFF1C1C1E),Color.White)).clickable{onPick(c)}.padding(horizontal=13.dp,vertical=12.dp),verticalAlignment=Alignment.CenterVertically){Text(c.flag,fontSize=24.sp);Spacer(Modifier.width(10.dp));Text(c.name,fontSize=16.sp,fontWeight=FontWeight.SemiBold,modifier=Modifier.weight(1f));Text("${c.code}  ${c.iso}",fontSize=13.sp,color=Color(0xFF8A94A6));Spacer(Modifier.width(4.dp));Text("›",fontSize=22.sp,color=Color(0xFFC7C7CC))}
+                        Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(15.dp)).background(dk(Color(0xFF1C1C1E),Color.White)).motionClickable(pressedScale=.985f){onPick(c)}.padding(horizontal=13.dp,vertical=12.dp),verticalAlignment=Alignment.CenterVertically){Text(c.flag,fontSize=24.sp);Spacer(Modifier.width(10.dp));Text(c.name,fontSize=16.sp,fontWeight=FontWeight.SemiBold,modifier=Modifier.weight(1f));Text("${c.code}  ${c.iso}",fontSize=13.sp,color=Color(0xFF8A94A6));Spacer(Modifier.width(4.dp));Text("›",fontSize=22.sp,color=Color(0xFFC7C7CC))}
                     }
                 }
             }
@@ -2123,44 +3372,459 @@ fun recordToJson(r:PhoneNumberRecord)=JSONObject()
     .put("tags",r.tags).put("transactionNotes",r.transactionNotes).put("customPrompt",r.customPrompt)
     .put("websiteURL",r.websiteURL).put("cyclePaymentMinorUnits",r.cyclePaymentMinorUnits)
     .put("currencyCode",r.currencyCode).put("cardBackgroundAssetName",r.cardBackgroundAssetName)
-    .put("cardColorHex",r.cardColorHex).put("cardType",r.cardType)
+    .put("cardColorHex",r.cardColorHex).put("cardType",r.cardType).put("sortOrder",r.sortOrder)
 
+/**
+ * Clean pasted secrets. Do NOT take a short suffix match — that corrupts full keys.
+ * Vault crypto uses password-derived secrets only; private keys are only for password reset.
+ */
 fun cleanCloudApiKey(raw:String):String {
-    val t=raw.trim()
+    val t=raw.trim().replace(Regex("[\r\n\t ]+"),"")
     if(t.isBlank()) return ""
-    val exact=Regex("[A-Za-z0-9_-]{24,80}").findAll(t).map{it.value}.filterNot{ it.equals("API",true) || it.equals("Key",true) }.toList()
-    return (exact.lastOrNull() ?: t.lineSequence().map{it.trim()}.firstOrNull{it.isNotBlank()} ?: "").replace(Regex("[\r\n\t ]+"),"").trim()
+    // whole string is already a key / secret
+    if(Regex("^[A-Za-z0-9_-]{24,128}$").matches(t)) return t
+    // pasted with junk around it — take the longest token
+    return Regex("[A-Za-z0-9_-]{24,128}").findAll(t).map{ it.value }.maxByOrNull{ it.length } ?: t
 }
-fun isValidCloudApiKey(key:String):Boolean = Regex("^[A-Za-z0-9_-]{24,80}$").matches(cleanCloudApiKey(key))
+fun isValidCloudApiKey(key:String):Boolean = Regex("^[A-Za-z0-9_-]{24,128}$").matches(cleanCloudApiKey(key))
 fun cleanCloudUrl(raw:String):String = raw.trim().trimEnd('/')
+fun cleanBundledCloudUrl(raw:String):String {
+    val url=cleanCloudUrl(raw)
+    if(url.isBlank()) return DEFAULT_SIMJ_CLOUD_URL
+    return url
+}
+fun isPublicCloudPath(path:String):Boolean =
+    path.startsWith("/api/status") ||
+    path.startsWith("/api/public-settings") ||
+    path.startsWith("/api/account/register") ||
+    path.startsWith("/api/account/login") ||
+    path.startsWith("/api/account/reset-password")
 
 fun cloudPayload(records:List<PhoneNumberRecord>,s:App设置):String{
-    val settings=settingsToJson(s).put("remindDays",s.remind天)
+    val settings=settingsToJson(s)
+        .put("remindDays",s.remind天)
+        .put("cloudApiKey","")
+        .put("cloudToken","")
+        .put("cloudDeviceId","")
     val arr=JSONArray(); records.forEach{arr.put(recordToJson(it))}
     return JSONObject().put("settings",settings).put("records",arr).toString()
 }
+
+private const val SIMJ_CLOUD_E2EE_ITERATIONS = 310000
+private val SIMJ_CLOUD_AAD = "simj:e2ee:v1".toByteArray(Charsets.UTF_8)
+
+fun b64u(bytes:ByteArray):String = Base64.encodeToString(bytes,Base64.URL_SAFE or Base64.NO_WRAP or Base64.NO_PADDING)
+fun b64ud(text:String):ByteArray = Base64.decode(text,Base64.URL_SAFE or Base64.NO_WRAP or Base64.NO_PADDING)
+fun simjCloudSalt(username:String):ByteArray = MessageDigest.getInstance("SHA-256").digest("simj:e2ee:v1:${username.trim().lowercase()}".toByteArray(Charsets.UTF_8)).copyOf(16)
+fun deriveSimjCloudSecret(username:String,password:String):String{
+    val spec=PBEKeySpec(password.toCharArray(),simjCloudSalt(username),SIMJ_CLOUD_E2EE_ITERATIONS,256)
+    val raw=SecretKeyFactory.getInstance("PBKDF2WithHmacSHA256").generateSecret(spec).encoded
+    return b64u(raw)
+}
+fun deriveSimjCloudSecretWithSalt(password:String,saltBytes:ByteArray,iterations:Int=SIMJ_CLOUD_E2EE_ITERATIONS):String{
+    val spec=PBEKeySpec(password.toCharArray(),saltBytes,iterations.coerceAtLeast(10000),256)
+    val raw=SecretKeyFactory.getInstance("PBKDF2WithHmacSHA256").generateSecret(spec).encoded
+    return b64u(raw)
+}
+/**
+ * All password-based vault key candidates for this account.
+ * Private key is NEVER used for vault crypto — only for server-side password reset.
+ */
+fun passwordVaultSecrets(username:String,password:String,envelope:JSONObject?=null):List<String>{
+    if(password.isBlank()) return emptyList()
+    val user=username.trim()
+    val out=LinkedHashSet<String>()
+    // 1) current: PBKDF2(password, salt=SHA256("simj:e2ee:v1:"+user)[:16], 310000)
+    runCatching{ out.add(deriveSimjCloudSecret(user,password)) }
+    runCatching{ out.add(deriveSimjCloudSecret(user.lowercase(),password)) }
+    // 2) salt from envelope (if an older build wrote a different salt)
+    val saltB64=envelope?.optString("salt","") ?: ""
+    val iter=envelope?.optInt("iter",SIMJ_CLOUD_E2EE_ITERATIONS)?.takeIf{ it>0 } ?: SIMJ_CLOUD_E2EE_ITERATIONS
+    if(saltB64.isNotBlank()){
+        runCatching{
+            out.add(deriveSimjCloudSecretWithSalt(password,b64ud(saltB64),iter))
+        }
+    }
+    // 3) very old mistaken schemes (password hash as key material)
+    runCatching{
+        out.add(b64u(MessageDigest.getInstance("SHA-256").digest("${user.lowercase()}:$password".toByteArray(Charsets.UTF_8))))
+    }
+    runCatching{
+        out.add(b64u(MessageDigest.getInstance("SHA-256").digest(password.toByteArray(Charsets.UTF_8))))
+    }
+    return out.filter{ it.isNotBlank() }
+}
+/**
+ * Data vault is encrypted ONLY with a key derived from account password.
+ * Login with username+password must decrypt and auto-restore.
+ * privateKey is ONLY for password-reset identity on server — never vault crypto.
+ */
+fun cloudEncryptPayload(plain:String,s:App设置):JSONObject{
+    val secret=cleanCloudApiKey(s.cloudApiKey)
+    if(secret.isBlank()) throw IllegalStateException("password-derived vault key missing — login with password first")
+    val keyBytes=simjAesKeyBytes(secret)
+    val nonce=ByteArray(12).also{ SecureRandom().nextBytes(it) }
+    val cipher=Cipher.getInstance("AES/GCM/NoPadding")
+    cipher.init(Cipher.ENCRYPT_MODE,SecretKeySpec(keyBytes,"AES"),GCMParameterSpec(128,nonce))
+    cipher.updateAAD(SIMJ_CLOUD_AAD)
+    val sealed=cipher.doFinal(plain.toByteArray(Charsets.UTF_8))
+    val tagSize=16
+    val cipherText=sealed.copyOfRange(0,sealed.size-tagSize)
+    val tag=sealed.copyOfRange(sealed.size-tagSize,sealed.size)
+    return JSONObject()
+        .put("v",2)
+        .put("mode","app-e2ee-pwd") // password-derived AES key ONLY
+        .put("alg","AES-256-GCM")
+        .put("kdf","PBKDF2-HMAC-SHA256")
+        .put("iter",SIMJ_CLOUD_E2EE_ITERATIONS)
+        .put("salt",b64u(simjCloudSalt(s.cloudUsername)))
+        .put("nonce",b64u(nonce))
+        .put("ciphertext",b64u(cipherText))
+        .put("tag",b64u(tag))
+        .put("updatedAt",System.currentTimeMillis()/1000L)
+}
+/** Normalize secret into a 16/24/32-byte AES key. Prefer raw base64 decode of 32-byte material. */
+fun simjAesKeyBytes(secret:String):ByteArray{
+    val cleaned=cleanCloudApiKey(secret)
+    if(cleaned.isBlank()) throw IllegalStateException("cloud secret missing")
+    val raw=runCatching{ b64ud(cleaned) }.getOrElse{ cleaned.toByteArray(Charsets.UTF_8) }
+    return when{
+        raw.size==16 || raw.size==24 || raw.size==32 -> raw
+        raw.size>32 -> raw.copyOf(32)
+        raw.isEmpty() -> throw IllegalStateException("cloud secret empty after decode")
+        else -> MessageDigest.getInstance("SHA-256").digest(raw)
+    }
+}
+private fun cloudDecryptWithSecret(envelope:JSONObject,secret:String):String{
+    val keyBytes=simjAesKeyBytes(secret)
+    val nonce=b64ud(envelope.optString("nonce",""))
+    val cipherTextText=envelope.optString("ciphertext",envelope.optString("cipherText",""))
+    val cipherBytes=b64ud(cipherTextText)
+    val tagText=envelope.optString("tag","")
+    val sealed=if(tagText.isNotBlank()) cipherBytes + b64ud(tagText) else cipherBytes
+    // with AAD (current)
+    try{
+        val cipher=Cipher.getInstance("AES/GCM/NoPadding")
+        cipher.init(Cipher.DECRYPT_MODE,SecretKeySpec(keyBytes,"AES"),GCMParameterSpec(128,nonce))
+        cipher.updateAAD(SIMJ_CLOUD_AAD)
+        return String(cipher.doFinal(sealed),Charsets.UTF_8)
+    }catch(_:Exception){ }
+    // without AAD (legacy)
+    val c2=Cipher.getInstance("AES/GCM/NoPadding")
+    c2.init(Cipher.DECRYPT_MODE,SecretKeySpec(keyBytes,"AES"),GCMParameterSpec(128,nonce))
+    return String(c2.doFinal(sealed),Charsets.UTF_8)
+}
+fun cloudDecryptPayload(envelope:JSONObject,s:App设置,extraSecrets:List<String> = emptyList()):String{
+    val candidates=(listOf(cleanCloudApiKey(s.cloudApiKey)) + extraSecrets.map{ cleanCloudApiKey(it) })
+        .filter{ it.isNotBlank() }
+        .distinct()
+    if(candidates.isEmpty()) throw IllegalStateException("password-derived vault key missing")
+    var last:Exception?=null
+    for(secret in candidates){
+        try{ return cloudDecryptWithSecret(envelope,secret) }catch(e:Exception){ last=e }
+    }
+    throw (last ?: IllegalStateException("cloud decrypt failed"))
+}
+/** Result of pulling /api/sync — distinguishes "no data" vs "has ciphertext but wrong key". */
+data class CloudPullResult(
+    val records:List<PhoneNumberRecord>,
+    val settings:App设置?,
+    val cloudRecordHint:Int,
+    val hasEncryptedVault:Boolean,
+    val decryptError:String?,
+    val recoveredVia:String // vault | coverage | none
+)
+fun recordsFromLegacyPayload(obj:JSONObject):Pair<List<PhoneNumberRecord>,App设置?>{
+    return runCatching{
+        val payload=if(obj.has("payload")) obj.optJSONObject("payload") else null
+        when{
+            payload!=null -> parseRecordsJson(payload.toString())
+            obj.has("records") && obj.opt("records") is JSONArray -> parseRecordsJson(obj.toString())
+            else -> Pair(emptyList(),null)
+        }
+    }.getOrElse{ Pair(emptyList(),null) }
+}
+fun recordsFromCoverageJson(coverage:JSONObject?):List<PhoneNumberRecord>{
+    if(coverage==null) return emptyList()
+    val countries=coverage.optJSONArray("countries") ?: return emptyList()
+    val out=ArrayList<PhoneNumberRecord>()
+    for(i in 0 until countries.length()){
+        val c=countries.optJSONObject(i) ?: continue
+        val countryName=c.optString("name","")
+        val samples=c.optJSONArray("samples") ?: continue
+        for(j in 0 until samples.length()){
+            val s=samples.optJSONObject(j) ?: continue
+            val number=s.optString("number",s.optString("num","")).trim()
+            if(number.isBlank()) continue // last4-only samples cannot restore full numbers
+            val code=s.optString("code","")
+            val op=s.optString("op",s.optString("operator",""))
+            val id=s.optString("id","").ifBlank{ UUID.randomUUID().toString() }
+            val isEsim=s.optBoolean("esim",false)
+            out.add(
+                PhoneNumberRecord(
+                    id=id,
+                    countryCode=code.ifBlank{"+"},
+                    countryName=s.optString("name",countryName),
+                    flag=s.optString("flag",""),
+                    number=number,
+                    operator=op,
+                    expireDate=s.optString("expire",s.optString("expireDate","")),
+                    note=s.optString("note",""),
+                    balance=s.optString("balance",""),
+                    cardType=s.optString("cardType",if(isEsim) "esim" else "prepaid"),
+                    signalStatus=s.optString("signal","在线")
+                )
+            )
+        }
+    }
+    return out
+}
+/**
+ * Pull + decrypt vault. [password] if provided is used to derive vault keys (preferred).
+ * Private key is never used here.
+ */
+fun analyzeCloudSyncResponse(
+    text:String,
+    s:App设置,
+    extraSecrets:List<String> = emptyList(),
+    password:String=""
+):CloudPullResult{
+    return try{
+        val obj=JSONObject(text)
+        val encrypted=obj.optJSONObject("encryptedVault") ?: obj.optJSONObject("envelope")
+        val coverage=obj.optJSONObject("coverage")
+        val hintFromRoot=obj.optInt("records",0)
+        val hintFromCov=coverage?.optInt("records",0) ?: 0
+        val hint=when{
+            hintFromRoot>0 -> hintFromRoot
+            hintFromCov>0 -> hintFromCov
+            else -> 0
+        }
+        val hasVault=encrypted!=null && (
+            encrypted.optString("mode").startsWith("app-e2ee") ||
+            encrypted.has("tag") || encrypted.has("ciphertext") || encrypted.has("cipherText")
+        )
+        if(hasVault){
+            val vault=encrypted ?: JSONObject()
+            val allPwd=if(password.isNotBlank()) passwordVaultSecrets(s.cloudUsername,password,vault) else emptyList()
+            val candidates=(allPwd + extraSecrets + listOf(s.cloudApiKey)).map{ cleanCloudApiKey(it) }.filter{ it.isNotBlank() }.distinct()
+            try{
+                val plain=cloudDecryptPayload(vault,s,candidates)
+                val parsed=parseRecordsJson(plain)
+                if(parsed.first.isNotEmpty()){
+                    return CloudPullResult(parsed.first,parsed.second,hint.coerceAtLeast(parsed.first.size),true,null,"vault")
+                }
+                val fromCov=recordsFromCoverageJson(coverage)
+                if(fromCov.isNotEmpty()){
+                    return CloudPullResult(fromCov,parsed.second,hint.coerceAtLeast(fromCov.size),true,null,"coverage")
+                }
+                return CloudPullResult(emptyList(),parsed.second,hint,true,null,"none")
+            }catch(e:Exception){
+                val fromCov=recordsFromCoverageJson(coverage)
+                if(fromCov.isNotEmpty()){
+                    return CloudPullResult(fromCov,null,hint.coerceAtLeast(fromCov.size),true,e.message,"coverage")
+                }
+                val legacy=recordsFromLegacyPayload(obj)
+                if(legacy.first.isNotEmpty()){
+                    return CloudPullResult(legacy.first,legacy.second,hint.coerceAtLeast(legacy.first.size),true,e.message,"legacy")
+                }
+                return CloudPullResult(emptyList(),null,hint,true,e.message ?: e.javaClass.simpleName,"none")
+            }
+        }
+        val payload=if(obj.has("payload")) obj.getJSONObject("payload") else obj
+        val parsed=parseRecordsJson(payload.toString())
+        if(parsed.first.isNotEmpty()){
+            CloudPullResult(parsed.first,parsed.second,hint.coerceAtLeast(parsed.first.size),false,null,"vault")
+        }else{
+            val fromCov=recordsFromCoverageJson(coverage)
+            CloudPullResult(fromCov,null,hint.coerceAtLeast(fromCov.size),false,null,if(fromCov.isNotEmpty()) "coverage" else "none")
+        }
+    }catch(e:Exception){
+        CloudPullResult(emptyList(),null,0,false,e.message,"none")
+    }
+}
+fun countryIsoForRecord(r:PhoneNumberRecord):String{
+    val country=Countries.list.firstOrNull{ it.name==r.countryName || it.flag==r.flag || (it.code==r.countryCode && r.countryName.isBlank()) }
+        ?: Countries.list.firstOrNull{ it.code==r.countryCode && it.name==r.countryName }
+    return country?.iso ?: ""
+}
+fun cloudCountryName(iso:String,fallback:String):String = when(iso.uppercase()){
+    "TW" -> "中国台湾省"
+    "HK" -> "中国香港"
+    "MO" -> "中国澳门"
+    else -> fallback.ifBlank{iso.uppercase()}
+}
+fun isCloudEsimRecord(r:PhoneNumberRecord):Boolean{
+    val text=listOf(r.cardType,r.eid,r.smdp,r.activationCode,r.note,r.tags).joinToString(" ").lowercase()
+    return text.contains("esim") || r.eid.isNotBlank() || r.smdp.isNotBlank() || r.activationCode.isNotBlank()
+}
+fun cloudCoverage(records:List<PhoneNumberRecord>):JSONObject{
+    val map=linkedMapOf<String,JSONObject>()
+    records.forEach{ r->
+        val iso=countryIsoForRecord(r).uppercase()
+        if(iso.isBlank()) return@forEach
+        val item=map.getOrPut(iso){
+            JSONObject()
+                .put("iso",iso)
+                .put("name",cloudCountryName(iso,r.countryName))
+                .put("records",0)
+                .put("esims",0)
+                .put("samples",JSONArray())
+        }
+        item.put("records",item.optInt("records",0)+1)
+        val isEsim=isCloudEsimRecord(r)
+        if(isEsim) item.put("esims",item.optInt("esims",0)+1)
+        // 同账户 Web 展示用完整号码卡片（仅登录账号可拉 coverage；vault 仍为 E2EE）
+        val samples=item.optJSONArray("samples") ?: JSONArray().also{ item.put("samples",it) }
+        if(samples.length()<120){
+            val digits=r.number.filter{ it.isDigit() }
+            val last4=if(digits.length>=4) digits.takeLast(4) else digits.ifBlank{"????"}
+            val op=r.operator.ifBlank{ r.countryName }.take(40)
+            samples.put(
+                JSONObject()
+                    .put("id",r.id)
+                    .put("number",r.number)
+                    .put("last4",last4)
+                    .put("mask",r.number.ifBlank{"•••• $last4"})
+                    .put("op",op)
+                    .put("esim",isEsim)
+                    .put("code",r.countryCode)
+                    .put("name",r.countryName)
+                    .put("flag",r.flag)
+                    .put("expire",r.expireDate)
+                    .put("balance",r.balance)
+                    .put("cardType",r.cardType)
+                    .put("signal",r.signalStatus)
+                    .put("note",r.note.take(80))
+            )
+        }
+    }
+    val items=map.values.sortedWith(compareByDescending<JSONObject>{it.optInt("esims",0)}.thenByDescending{it.optInt("records",0)}.thenBy{it.optString("iso")})
+    val arr=JSONArray(); items.forEach{ arr.put(it) }
+    return JSONObject()
+        .put("countries",arr)
+        .put("countryCount",items.size)
+        .put("records",items.sumOf{it.optInt("records",0)})
+        .put("esims",items.sumOf{it.optInt("esims",0)})
+        .put("updatedAt",System.currentTimeMillis()/1000L)
+}
+fun cloudEncryptedPayload(records:List<PhoneNumberRecord>,s:App设置):String{
+    val coverage=cloudCoverage(records)
+    return JSONObject()
+        .put("encryptedVault",cloudEncryptPayload(cloudPayload(records,s),s))
+        .put("coverage",coverage)
+        .put("records",records.size)
+        .put("deviceId",s.cloudDeviceId.ifBlank{"android"})
+        .toString()
+}
 fun cloudRequest(s:App设置,path:String,method:String="POST",body:String="{}",lang:String="简体中文",onResult:(Boolean,String)->Unit){
-    val apiKey=cleanCloudApiKey(s.cloudApiKey)
-    val cloudUrl=cleanCloudUrl(if(s.cloudUrl.isBlank()) "https://ccs.ziranaa.top:16670" else s.cloudUrl)
+    val token=s.cloudToken.trim()
+    val cloudUrl=cleanBundledCloudUrl(s.cloudUrl)
     if(cloudUrl.isBlank()){onResult(false,tr(lang,"云端地址未填写"));return}
-    val needsAuth=!(path.startsWith("/api/register")||path.startsWith("/api/status"))
-    if(needsAuth&&apiKey.isBlank()){onResult(false,tr(lang,"API Key 未填写"));return}
+    val needsAuth=!isPublicCloudPath(path)
+    if(needsAuth&&token.isBlank()){onResult(false,"登录已过期，请重新登录云同步账户");return}
     thread{
         val res=runCatching{
-            val c=(URL(cloudUrl+path).openConnection() as HttpURLConnection)
-            c.requestMethod=method.uppercase(); c.connectTimeout=12000; c.readTimeout=20000
-            if(needsAuth) c.setRequestProperty("X-API-Key",apiKey)
+            val fullUrl=cloudUrl.trimEnd('/')+path
+            val c=(URL(fullUrl).openConnection() as HttpURLConnection)
+            c.instanceFollowRedirects=true
+            c.requestMethod=method.uppercase(); c.connectTimeout=15000; c.readTimeout=25000
+            // Avoid keep-alive reuse bugs with short-lived Python HTTP/1.x responses
+            c.setRequestProperty("Connection","close")
+            c.setRequestProperty("Accept","application/json")
+            c.setRequestProperty("User-Agent","simJ-Android/3.0.24")
+            if(needsAuth){
+                c.setRequestProperty("Authorization","Bearer $token")
+            }
             if(c.requestMethod=="POST"){
                 c.doOutput=true
                 c.setRequestProperty("Content-Type","application/json; charset=utf-8")
-                c.outputStream.use{it.write(body.toByteArray(Charsets.UTF_8))}
+                val bytes=body.toByteArray(Charsets.UTF_8)
+                // Prefer Content-Length over chunked; fixed streaming can confuse some servers
+                c.setRequestProperty("Content-Length", bytes.size.toString())
+                c.outputStream.use{ out ->
+                    out.write(bytes)
+                    out.flush()
+                }
+            }
+            val respCode=try{ c.responseCode }catch(e:Exception){
+                // Retry once on truncated stream (common with HTTP/1.0 close)
+                throw e
+            }
+            fun readFully(stream:java.io.InputStream?):String{
+                if(stream==null) return ""
+                return stream.use{ ins ->
+                    val bos=java.io.ByteArrayOutputStream()
+                    val buf=ByteArray(8*1024)
+                    while(true){
+                        val n=try{ ins.read(buf) }catch(_:Exception){ -1 }
+                        if(n<=0) break
+                        bos.write(buf,0,n)
+                    }
+                    bos.toByteArray().toString(Charsets.UTF_8)
+                }
+            }
+            val stream=if(respCode in 200..299) c.inputStream else (c.errorStream ?: c.inputStream)
+            val respBody=readFully(stream)
+            try{ c.disconnect() }catch(_:Exception){}
+            if(respCode !in 200..299){
+                // Prefer server JSON message when present
+                val serverMsg=runCatching{ JSONObject(respBody).optString("message","") }.getOrDefault("")
+                if(serverMsg.isNotBlank()) "HTTP $respCode: $serverMsg" else "HTTP $respCode: $respBody"
+            }else respBody
+        }.recoverCatching{ first ->
+            // One automatic retry for ProtocolException / truncated response
+            val m0=first.message?:""
+            if(!m0.contains("end of stream", ignoreCase=true) &&
+               !m0.contains("ProtocolException", ignoreCase=true) &&
+               first.javaClass.simpleName!="ProtocolException") throw first
+            Thread.sleep(350)
+            val fullUrl=cloudUrl.trimEnd('/')+path
+            val c=(URL(fullUrl).openConnection() as HttpURLConnection)
+            c.instanceFollowRedirects=true
+            c.requestMethod=method.uppercase(); c.connectTimeout=15000; c.readTimeout=25000
+            c.setRequestProperty("Connection","close")
+            c.setRequestProperty("Accept","application/json")
+            c.setRequestProperty("User-Agent","simJ-Android/3.0.24")
+            if(needsAuth){
+                c.setRequestProperty("Authorization","Bearer $token")
+            }
+            if(c.requestMethod=="POST"){
+                c.doOutput=true
+                c.setRequestProperty("Content-Type","application/json; charset=utf-8")
+                val bytes=body.toByteArray(Charsets.UTF_8)
+                c.setRequestProperty("Content-Length", bytes.size.toString())
+                c.outputStream.use{ out -> out.write(bytes); out.flush() }
             }
             val respCode=c.responseCode
-            val stream=if(respCode in 200..299) c.inputStream else c.errorStream
-            val respBody=stream?.bufferedReader(Charsets.UTF_8)?.readText() ?: ""
-            if(respCode !in 200..299) "HTTP $respCode: $respBody" else respBody
-        }.fold({it},{tr(lang,"失败")+": ${it.javaClass.simpleName}: ${it.message}"})
-        Handler(Looper.getMainLooper()).post{onResult(!res.startsWith(tr(lang,"失败")) && !res.startsWith("HTTP "),res)}
+            val stream=if(respCode in 200..299) c.inputStream else (c.errorStream ?: c.inputStream)
+            val respBody=stream?.use{ it.readBytes().toString(Charsets.UTF_8) } ?: ""
+            try{ c.disconnect() }catch(_:Exception){}
+            if(respCode !in 200..299){
+                val serverMsg=runCatching{ JSONObject(respBody).optString("message","") }.getOrDefault("")
+                if(serverMsg.isNotBlank()) "HTTP $respCode: $serverMsg" else "HTTP $respCode: $respBody"
+            }else respBody
+        }.fold(
+            {it},
+            { e ->
+                val m=e.message ?: ""
+                when{
+                    m.contains("Cleartext", ignoreCase=true) ->
+                        "失败: 系统拦截了 HTTP 明文访问。建议使用 HTTPS，或确认 App 已允许自建服务的 HTTP 地址。"
+                    m.contains("Unable to resolve host", ignoreCase=true) || m.contains("UnknownHost", ignoreCase=true) ->
+                        "失败: 无法解析服务器域名/地址，请检查服务地址与网络"
+                    m.contains("Connection refused", ignoreCase=true) || m.contains("ECONNREFUSED", ignoreCase=true) ->
+                        "失败: 连接被拒绝，请确认云服务已启动（端口 8787）"
+                    m.contains("timeout", ignoreCase=true) || m.contains("Timed out", ignoreCase=true) ->
+                        "失败: 连接超时，请检查网络或服务地址 $cloudUrl"
+                    m.contains("end of stream", ignoreCase=true) || e.javaClass.simpleName=="ProtocolException" ->
+                        "失败: 与云端通信中断，请确认服务地址格式正确，例如 https://your-domain.example 或 http://<your-server-ip>:8787"
+                    else -> "失败: ${e.javaClass.simpleName}: $m"
+                }
+            }
+        )
+        val ok=res.isNotBlank() && !res.startsWith("失败") && !res.startsWith("HTTP ")
+        Handler(Looper.getMainLooper()).post{onResult(ok,res)}
     }
 }
 fun cloudPost(s:App设置,path:String,body:String,lang:String="简体中文",onResult:(Boolean,String)->Unit)=cloudRequest(s,path,"POST",body,lang,onResult)
@@ -2178,12 +3842,16 @@ fun summarizeCloudCheckResponse(text:String):String{
 
 fun formatTsShort(ts:Long):String = if(ts>0) java.text.SimpleDateFormat("yyyy-MM-dd HH:mm", java.util.Locale.getDefault()).format(java.util.Date(ts*1000L)) else "-"
 
-fun parseCloudPayloadResponse(text:String):Pair<List<PhoneNumberRecord>,App设置?>{
-    return runCatching{
-        val obj=JSONObject(text)
-        val payload=if(obj.has("payload")) obj.getJSONObject("payload") else obj
-        parseRecordsJson(payload.toString())
-    }.getOrElse{ Pair(emptyList(),null) }
+fun parseCloudPayloadResponse(text:String,s:App设置?=null,extraSecrets:List<String> = emptyList()):Pair<List<PhoneNumberRecord>,App设置?>{
+    if(s==null){
+        return runCatching{
+            val obj=JSONObject(text)
+            val payload=if(obj.has("payload")) obj.getJSONObject("payload") else obj
+            parseRecordsJson(payload.toString())
+        }.getOrElse{ Pair(emptyList(),null) }
+    }
+    val r=analyzeCloudSyncResponse(text,s,extraSecrets)
+    return Pair(r.records,r.settings)
 }
 
 fun recordMergeKey(r:PhoneNumberRecord):String{
@@ -2227,8 +3895,8 @@ fun mergeRecords(cloud:List<PhoneNumberRecord>,local:List<PhoneNumberRecord>):Li
 fun mergeCloudSettings(current:App设置,cloud:App设置?):App设置{
     if(cloud==null) return current
     val keepKey=cleanCloudApiKey(current.cloudApiKey).ifBlank{ cleanCloudApiKey(cloud.cloudApiKey) }
-    val keepUrl=current.cloudUrl.ifBlank{ cloud.cloudUrl.ifBlank{ "https://ccs.ziranaa.top:16670" } }
-    return cloud.copyMut{ cloudApiKey=keepKey; cloudUrl=keepUrl; cloudEnabled=true }
+    val keepUrl=cleanBundledCloudUrl(current.cloudUrl).ifBlank{ cleanBundledCloudUrl(cloud.cloudUrl) }
+    return cloud.copyMut{ cloudApiKey=keepKey; cloudUrl=keepUrl; cloudToken=current.cloudToken; cloudUsername=current.cloudUsername; cloudDeviceId=current.cloudDeviceId; cloudEnabled=true }
 }
 
 fun restoreCloudBackupById(st:App设置, backupId:Int, onResult:(Boolean,String)->Unit){
@@ -2243,8 +3911,14 @@ fun restoreCloudBackupById(st:App设置, backupId:Int, onResult:(Boolean,String)
     var cloudRestoreChoice by remember{ mutableStateOf<Pair<List<PhoneNumberRecord>,App设置?>?>(null) }
     var cloudOverwriteConfirm by remember{ mutableStateOf(false) }
     var keyGenerateConfirm by remember{ mutableStateOf(false) }
-    var keyExistingDialog by remember{ mutableStateOf(false) }
-    var keyRegenerateConfirm by remember{ mutableStateOf(false) }
+    var registerUsername by remember{ mutableStateOf("") }
+    var registerPassword by remember{ mutableStateOf("") }
+    var registerPasswordAgain by remember{ mutableStateOf("") }
+    var privateKeyInput by remember{ mutableStateOf("") }
+    var showPrivateKeyOnce by remember{ mutableStateOf<String?>(null) }
+    var resetPasswordMode by remember{ mutableStateOf(false) }
+    var registerBusy by remember{ mutableStateOf(false) }
+
     var cloudOverviewKeyRecords by remember{ mutableStateOf(-1) }
     var cloudOverviewUpdatedAt by remember{ mutableStateOf(0L) }
     var cloudOverviewHasSettings by remember{ mutableStateOf(false) }
@@ -2268,32 +3942,54 @@ fun restoreCloudBackupById(st:App设置, backupId:Int, onResult:(Boolean,String)
     fun S(key:String)=tr(pageLang,key)
     fun showCloudMsg(msg:String){ cloudMsg=msg; Toast.makeText(ctx,msg,Toast.LENGTH_SHORT).show() }
     fun loadCloudOverview(){
+        fun applyOverview(r:JSONObject){
+            cloudOverviewKeyRecords=r.optInt("records",-1)
+            val ts=r.optLong("updatedAt",0).let{ if(it>0) it else r.optJSONObject("coverage")?.optLong("updatedAt",0)?:0 }
+            cloudOverviewUpdatedAt=if(ts>1_000_000_000_000L) ts else ts*1000L
+            cloudOverviewHasSettings=r.optBoolean("hasData",r.optBoolean("hasSettings",false))
+            cloudOverviewKeyTail=r.optString("privateKeyTail",r.optString("apiKeyTail",r.optString("username","")))
+        }
+        if(st.cloudToken.isNotBlank()){
+            cloudGet(st,"/api/account/me"){ok,msg->
+                if(ok){
+                    try{ applyOverview(JSONObject(msg)) }catch(_:Exception){}
+                }
+            }
+            return
+        }
         cloudGet(st,"/api/key-info"){ok,msg->
             if(ok){
-                try{
-                    val r=JSONObject(msg)
-                    cloudOverviewKeyRecords=r.optInt("records",-1)
-                    cloudOverviewUpdatedAt=r.optLong("updatedAt",0)*1000L
-                    cloudOverviewHasSettings=r.optBoolean("hasSettings",false)
-                    cloudOverviewKeyTail=r.optString("apiKeyTail","")
-                }catch(_:Exception){}
+                try{ applyOverview(JSONObject(msg)) }catch(_:Exception){}
             }else{
                 cloudGet(st,"/api/meta"){ok2,msg2->
                     if(ok2){
-                        try{
-                            val r=JSONObject(msg2)
-                            cloudOverviewKeyRecords=r.optInt("records",-1)
-                            cloudOverviewUpdatedAt=r.optLong("updatedAt",0)*1000L
-                            cloudOverviewHasSettings=r.optBoolean("hasSettings",false)
-                            cloudOverviewKeyTail=r.optString("apiKeyTail","")
-                        }catch(_:Exception){}
+                        try{ applyOverview(JSONObject(msg2)) }catch(_:Exception){}
                     }
                 }
             }
         }
     }
+    fun applyPulledCloud(pull:CloudPullResult,base:App设置,autoMigrate:Boolean=true){
+        if(pull.records.isEmpty()) return
+        val mergedSettings=mergeCloudSettings(base,pull.settings)
+        if(records.isEmpty()){
+            st=mergedSettings; on(mergedSettings)
+            onCloudRestore(pull.records,mergedSettings)
+            showCloudMsg("已从云端恢复：${pull.records.size} 个号码" + if(pull.recoveredVia=="coverage") "（来自同步卡片）" else "")
+            if(autoMigrate){
+                runCatching{
+                    cloudPost(mergedSettings,"/api/sync",cloudEncryptedPayload(pull.records,mergedSettings)){ok,_->
+                        if(ok) loadCloudOverview()
+                    }
+                }
+            }
+        }else{
+            cloudRestoreChoice=Pair(pull.records,pull.settings)
+            showCloudMsg("云端有 ${pull.records.size} 个号码，请选择合并或覆盖本地")
+        }
+    }
     fun loadCloudReminderStatus(){
-        if(cleanCloudApiKey(st.cloudApiKey).isBlank()) return
+        if(st.cloudToken.isBlank()) return
         cloudGet(st,"/api/reminder-status"){ok,msg->
             if(ok){
                 try{
@@ -2308,7 +4004,7 @@ fun restoreCloudBackupById(st:App设置, backupId:Int, onResult:(Boolean,String)
         }
     }
     fun loadCloudBackups(limit:Int=cloudBackupsLimit){
-        if(cleanCloudApiKey(st.cloudApiKey).isBlank()){
+        if(st.cloudToken.isBlank()){
             cloudBackups=emptyList(); cloudBackupsTotal=0; cloudBackupsLimit=limit
             return
         }
@@ -2353,13 +4049,13 @@ fun restoreCloudBackupById(st:App设置, backupId:Int, onResult:(Boolean,String)
                 try{
                     cloudGet(st,"/api/sync"){ok2,msg2->
                         if(ok2){
-                            val (cloudRecords,cloudSettings)=parseCloudPayloadResponse(msg2)
+                            val (cloudRecords,cloudSettings)=parseCloudPayloadResponse(msg2,st)
                             if(cloudRecords.isNotEmpty()){
                                 val ns=mergeCloudSettings(st,cloudSettings)
                                 st=ns
                                 onCloudRestore(cloudRecords,ns)
                                 showCloudMsg("已恢复指定备份：${cloudRecords.size} 个号码，配置已同步")
-                            }else showCloudMsg("已恢复指定备份")
+                            }else showCloudMsg("已恢复指定备份（密文已还原，请确认本机私钥正确）")
                         }else showCloudMsg("已恢复指定备份")
                         loadCloudOverview()
         loadCloudReminderStatus()
@@ -2374,7 +4070,7 @@ fun restoreCloudBackupById(st:App设置, backupId:Int, onResult:(Boolean,String)
         }
     }
     val bgPicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri: Uri? -> if(uri!=null){ st=st.copyMut{backgroundUri=uri.toString()}; on(st) } }
-    Column(Modifier.fillMaxSize().background(if(st.dark) Color(0xFF0B0F17) else Color(0xFFF2F3F7)).verticalScroll(rememberScrollState()).padding(horizontal=18.dp,vertical=12.dp),verticalArrangement=Arrangement.spacedBy(14.dp)){
+    Column(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background).verticalScroll(rememberScrollState()).padding(horizontal=18.dp,vertical=12.dp),verticalArrangement=Arrangement.spacedBy(14.dp)){
     LaunchedEffect(Unit){
         loadCloudOverview()
     }
@@ -2403,62 +4099,243 @@ fun restoreCloudBackupById(st:App设置, backupId:Int, onResult:(Boolean,String)
         }
         TrafficInterfaceSettings(st,{ ns-> st=ns; on(st) })
 
+        // 登录态：只要有 token 即可；vault 密钥由账号密码派生，私钥仅用于重置密码。
+        val cloudSignedIn=st.cloudToken.isNotBlank()
+        val hasLocalVaultKey=cleanCloudApiKey(st.cloudApiKey).isNotBlank()
         SettingsSection(S("云端提醒")){
             IOSSwitchRow(S("启用云端提醒"),st.cloudEnabled){ st=st.copyMut{cloudEnabled=it}; on(st) }
             PlainInput(S("服务地址"),st.cloudUrl){ st=st.copyMut{cloudUrl=it}; on(st) }
             Text(S("服务地址说明"),fontSize=11.sp,color=Color(0xFF8A94A6),lineHeight=16.sp)
             IOSSwitchRow(S("自动同步"),st.cloudAutoSync){ st=st.copyMut{cloudAutoSync=it}; on(st) }
-            Text(S("自动同步说明"),fontSize=11.sp,color=Color(0xFF8A94A6),lineHeight=16.sp)
-            PlainInput("API Key",st.cloudApiKey){ st=st.copyMut{cloudApiKey=cleanCloudApiKey(it)}; on(st) }
-            Text(S("API Key说明"),fontSize=11.sp,color=Color(0xFF8A94A6),lineHeight=16.sp)
-            Text(S("当前 API Key：")+if(st.cloudApiKey.isNotBlank()) cleanCloudApiKey(st.cloudApiKey) else S("未设置"),fontSize=12.sp,color=Color(0xFF8A94A6),lineHeight=17.sp)
-            Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(8.dp)){
-                Button({
-                    cloudGet(st,"/api/key-info"){ok,msg->
-                        if(ok){
-                            showCloudMsg("云端 Key 有效")
-                            loadCloudOverview()
-                            loadCloudReminderStatus()
-                        }else showCloudMsg(if(msg.isBlank()) S("连接失败") else msg)
+            Text("号码加解密只使用账号密码。登录成功即自动恢复云端数据。私钥只用于忘记密码时重置，与解密无关。",fontSize=11.sp,color=Color(0xFF8A94A6),lineHeight=16.sp)
+            if(!cloudSignedIn){
+                PlainInput("云同步账号",registerUsername.ifBlank{st.cloudUsername}){ registerUsername=it.trim().take(64) }
+                OutlinedTextField(
+                    value=registerPassword,
+                    onValueChange={ registerPassword=it },
+                    modifier=Modifier.fillMaxWidth(),
+                    singleLine=true,
+                    visualTransformation=PasswordVisualTransformation(),
+                    label={ Text(if(resetPasswordMode) "新密码" else "云同步密码") },
+                    shape=RoundedCornerShape(18.dp)
+                )
+                OutlinedTextField(
+                    value=registerPasswordAgain,
+                    onValueChange={ registerPasswordAgain=it },
+                    modifier=Modifier.fillMaxWidth(),
+                    singleLine=true,
+                    visualTransformation=PasswordVisualTransformation(),
+                    label={ Text(if(resetPasswordMode) "确认新密码" else "确认密码（仅注册需要；登录可留空）") },
+                    shape=RoundedCornerShape(18.dp)
+                )
+                // 私钥仅在「忘记密码重置」时需要填写；登录不要求私钥
+                if(resetPasswordMode){
+                    OutlinedTextField(
+                        value=privateKeyInput,
+                        onValueChange={ privateKeyInput=it.trim() },
+                        modifier=Modifier.fillMaxWidth(),
+                        singleLine=true,
+                        visualTransformation=PasswordVisualTransformation(),
+                        label={ Text("私钥（重置密码必填）") },
+                        shape=RoundedCornerShape(18.dp),
+                        placeholder={ Text("粘贴注册时保存的私钥") }
+                    )
+                }
+                TextButton(onClick={ resetPasswordMode=!resetPasswordMode; if(!resetPasswordMode) privateKeyInput="" }){ Text(if(resetPasswordMode) "返回登录" else "忘记密码？用私钥重置") }
+            }else{
+                Surface(shape=RoundedCornerShape(18.dp),color=MaterialTheme.colorScheme.surfaceContainerHighest,modifier=Modifier.fillMaxWidth()){
+                    Column(Modifier.padding(14.dp),verticalArrangement=Arrangement.spacedBy(4.dp)){
+                        Text("已登录：${st.cloudUsername.ifBlank{"SIMJ 账户"}}",fontSize=15.sp,fontWeight=FontWeight.Bold,color=MaterialTheme.colorScheme.onSurface)
+                        Text(
+                            if(hasLocalVaultKey)
+                                "已登录，云端号码用密码加解密。换机只要账号密码即可自动恢复。"
+                            else
+                                "请退出后用账号密码重新登录，登录后会自动用密码解密并恢复。",
+                            fontSize=12.sp,
+                            color=MaterialTheme.colorScheme.onSurfaceVariant,
+                            lineHeight=17.sp
+                        )
                     }
-                },shape=RoundedCornerShape(14.dp),modifier=Modifier.weight(1f)){Text(S("测试连接"))}
+                }
             }
             Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(8.dp)){
                 Button({
-                    if(st.cloudApiKey.isNotBlank()) {
-                        val clipboard=ctx.getSystemService(android.content.ClipboardManager::class.java)
-                        clipboard.setPrimaryClip(android.content.ClipData.newPlainText("api key",cleanCloudApiKey(st.cloudApiKey)))
-                        showCloudMsg(S("已复制 API Key"))
-                    }else showCloudMsg(S("请先生成或填写 API Key"))
-                },shape=RoundedCornerShape(14.dp),modifier=Modifier.weight(1f)){Text(S("复制 Key"))}
+                    val username=registerUsername.ifBlank{st.cloudUsername}.trim()
+                    val password=registerPassword
+                    when{
+                        cloudSignedIn -> cloudGet(st,"/api/account/me"){ok,msg-> if(ok){ showCloudMsg("云同步账户正常"); loadCloudOverview() } else showCloudMsg(msg) }
+                        resetPasswordMode -> {
+                            val pkey=cleanCloudApiKey(privateKeyInput)
+                            when{
+                                username.length<3 -> showCloudMsg("账号至少 3 位")
+                                password.length<8 -> showCloudMsg("新密码至少 8 位")
+                                password!=registerPasswordAgain -> showCloudMsg("两次密码不一致")
+                                !isValidCloudApiKey(pkey) -> showCloudMsg("请填写正确的私钥")
+                                else -> {
+                                    registerBusy=true
+                                    val body=JSONObject().put("username",username).put("privateKey",pkey).put("newPassword",password).toString()
+                                    cloudPost(st,"/api/account/reset-password",body){ok,msg->
+                                        registerBusy=false
+                                        if(ok){
+                                            resetPasswordMode=false
+                                            // 重置后数据密钥改由新密码派生；私钥只用于身份校验
+                                            val newSecret=runCatching{ deriveSimjCloudSecret(username,password) }.getOrDefault("")
+                                            val ns=st.copyMut{
+                                                cloudUsername=username
+                                                if(newSecret.isNotBlank()) cloudApiKey=newSecret
+                                            }
+                                            st=ns; on(ns)
+                                            privateKeyInput=""
+                                            registerPassword=""; registerPasswordAgain=""
+                                            showCloudMsg("密码已重置。请用新密码登录；若云端是旧密码加密的数据，请在原设备重新「同步到云端」一次。")
+                                        }else showCloudMsg(msg)
+                                    }
+                                }
+                            }
+                        }
+                        username.length<3 -> showCloudMsg("账号至少 3 位")
+                        password.length<8 -> showCloudMsg("密码至少 8 位")
+                        else -> {
+                            // 登录：账号+密码。vault 只按密码解密，私钥不参与。
+                            val pwdSecret=runCatching{ deriveSimjCloudSecret(username,password) }.getOrDefault("")
+                            registerBusy=true
+                            val body=JSONObject().put("username",username).put("password",password).toString()
+                            cloudPost(st,"/api/account/login",body){ok,msg->
+                                registerBusy=false
+                                if(ok){
+                                    val token=runCatching{ JSONObject(msg).optString("token","") }.getOrDefault("")
+                                    if(token.isBlank()) showCloudMsg("登录成功但服务器未返回令牌")
+                                    else if(pwdSecret.isBlank()) showCloudMsg("登录成功但无法从密码派生数据密钥")
+                                    else {
+                                        val ns=st.copyMut{
+                                            cloudUrl=cleanBundledCloudUrl(st.cloudUrl)
+                                            cloudUsername=username
+                                            cloudToken=token
+                                            cloudApiKey=pwdSecret // ONLY password-derived vault key
+                                            cloudDeviceId=cloudDeviceId.ifBlank{UUID.randomUUID().toString()}
+                                            cloudEnabled=true
+                                            cloudAutoSync=true
+                                        }
+                                        st=ns; on(ns)
+                                        val loginPassword=password
+                                        registerPassword=""; registerPasswordAgain=""; privateKeyInput=""
+                                        showCloudMsg("登录成功，正在用密码解密云端…")
+                                        loadCloudOverview()
+                                        cloudGet(ns,"/api/sync"){ok2,msg2->
+                                            if(!ok2){
+                                                if(msg2.contains("404") || msg2.contains("暂无") || msg2.contains("no cloud data",true))
+                                                    showCloudMsg("登录成功 · 云端暂无数据，可直接同步本地号码")
+                                                else showCloudMsg("登录成功，但拉取云端失败：$msg2")
+                                                return@cloudGet
+                                            }
+                                            val pull=analyzeCloudSyncResponse(msg2,ns,emptyList(),password=loginPassword)
+                                            if(pull.records.isNotEmpty()){
+                                                applyPulledCloud(pull,ns,autoMigrate=true)
+                                            }else if(pull.hasEncryptedVault || pull.cloudRecordHint>0){
+                                                if(records.isNotEmpty()){
+                                                    // 本机有号：用密码重新加密上传覆盖旧密文
+                                                    showCloudMsg("密码无法匹配旧密文。本机有 ${records.size} 个号码，正在用密码重新同步到云端…")
+                                                    cloudPost(ns,"/api/sync",cloudEncryptedPayload(records,ns)){ok3,msg3->
+                                                        showCloudMsg(if(ok3) "已用密码重写云端：${records.size} 个号码，之后换机可直接恢复" else msg3)
+                                                        if(ok3) loadCloudOverview()
+                                                    }
+                                                }else{
+                                                    showCloudMsg("登录成功。云端有统计但密码解不开密文：请确认密码正确；或在有本地号码的设备登录后点「同步到云端」。")
+                                                }
+                                            }else{
+                                                showCloudMsg("登录成功 · 云端暂无号码")
+                                            }
+                                        }
+                                    }
+                                }else showCloudMsg(msg)
+                            }
+                        }
+                    }
+                },shape=RoundedCornerShape(14.dp),modifier=Modifier.weight(1f)){Text(if(cloudSignedIn) "测试账户" else if(resetPasswordMode) "重置密码" else "登录账户")}
                 Button({
-                    val existing=cleanCloudApiKey(st.cloudApiKey)
-                    if(existing.isBlank() || !isValidCloudApiKey(existing)) keyGenerateConfirm=true else keyExistingDialog=true
-                },shape=RoundedCornerShape(14.dp),modifier=Modifier.weight(1f)){Text(if(cleanCloudApiKey(st.cloudApiKey).isBlank()) S("生成我的 Key") else "更换 Key")}
+                    if(cloudSignedIn){
+                        // 退出只清会话；下次用账号+密码登录会重新派生密钥并自动恢复
+                        val ns=st.copyMut{ cloudToken="" }
+                        st=ns; on(ns); showCloudMsg("已退出登录。下次用账号密码登录即可自动恢复")
+                    }else if(resetPasswordMode){
+                        resetPasswordMode=false; privateKeyInput=""
+                    }else{
+                        val username=registerUsername.trim()
+                        val password=registerPassword
+                        when{
+                            username.length<3 -> showCloudMsg("账号至少 3 位")
+                            password.length<8 -> showCloudMsg("密码至少 8 位")
+                            password!=registerPasswordAgain -> showCloudMsg("两次密码不一致")
+                            else -> {
+                                registerBusy=true
+                                val body=JSONObject().put("username",username).put("password",password).put("source","app").toString()
+                                cloudPost(st,"/api/account/register",body){ok,msg->
+                                    registerBusy=false
+                                    if(ok){
+                                        val obj=runCatching{ JSONObject(msg) }.getOrNull()
+                                        val token=obj?.optString("token","") ?: ""
+                                        val privateKey=cleanCloudApiKey(obj?.optString("privateKey","") ?: "")
+                                        val pwdSecret=runCatching{ deriveSimjCloudSecret(username,password) }.getOrDefault("")
+                                        if(token.isBlank()) showCloudMsg("注册成功但服务器未返回令牌")
+                                        else if(pwdSecret.isBlank()) showCloudMsg("注册成功但无法派生数据密钥")
+                                        else {
+                                            // 数据密钥=密码派生；私钥仅展示一次，用于忘记密码
+                                            val ns=st.copyMut{ cloudUrl=cleanBundledCloudUrl(st.cloudUrl); cloudUsername=username; cloudToken=token; cloudApiKey=pwdSecret; cloudDeviceId=cloudDeviceId.ifBlank{UUID.randomUUID().toString()}; cloudEnabled=true; cloudAutoSync=true }
+                                            st=ns; on(ns); registerPassword=""; registerPasswordAgain=""; privateKeyInput=""
+                                            if(isValidCloudApiKey(privateKey)) showPrivateKeyOnce=privateKey
+                                            showCloudMsg("注册成功。日常登录只需账号密码即可自动恢复；私钥仅用于找回密码，请另存。")
+                                            if(records.isNotEmpty()) cloudPost(ns,"/api/sync",cloudEncryptedPayload(records,ns)){ok2,msg2-> showCloudMsg(if(ok2) "已同步到云端：${records.size} 个号码" else msg2); if(ok2) loadCloudOverview() } else loadCloudOverview()
+                                        }
+                                    }else showCloudMsg(msg)
+                                }
+                            }
+                        }
+                    }
+                },shape=RoundedCornerShape(14.dp),modifier=Modifier.weight(1f)){Text(if(cloudSignedIn) "退出此设备" else "注册账户")}
             }
             Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(8.dp)){
                 Button({
+                    if(!cloudSignedIn){ showCloudMsg("请先登录云同步账户"); return@Button }
                     cloudGet(st,"/api/sync"){ok,msg->
                         if(ok){
-                            val cloudData=parseCloudPayloadResponse(msg)
-                            if(cloudData.first.isNotEmpty()){
-                                if(records.isEmpty()) showCloudMsg("云端已有数据，请先从云端恢复") else cloudSyncChoice=cloudData
+                            val pull=analyzeCloudSyncResponse(msg,st)
+                            if(pull.records.isNotEmpty()){
+                                if(records.isEmpty()) showCloudMsg("云端已有 ${pull.records.size} 个号码，请先从云端恢复") else cloudSyncChoice=Pair(pull.records,pull.settings)
+                            }else if(pull.hasEncryptedVault || pull.cloudRecordHint>0){
+                                val countText=if(pull.cloudRecordHint>0) "${pull.cloudRecordHint} 个号码" else "加密数据"
+                                if(records.isEmpty()){
+                                    showCloudMsg("云端有$countText，但当前密码密钥解不开。请退出后用正确密码登录，或在有本地号码的设备重新同步。")
+                                }else{
+                                    showCloudMsg("云端有$countText，但当前密码密钥解不开。如确认本机数据最新，可选择覆盖云端。")
+                                    cloudOverwriteConfirm=true
+                                }
                             }else{
-                                if(records.isEmpty()) showCloudMsg("本地暂无号码") else cloudPost(st,"/api/sync",cloudPayload(records,st)){ok2,msg2-> showCloudMsg(if(ok2) S("同步成功") else msg2); if(ok2){ loadCloudOverview(); loadCloudReminderStatus(); cloudPost(st,"/api/check-now",cloudPayload(records,st)){_,_->} } }
+                                if(records.isEmpty()) showCloudMsg("本地暂无号码") else cloudPost(st,"/api/sync",cloudEncryptedPayload(records,st)){ok2,msg2-> showCloudMsg(if(ok2) S("同步成功") else msg2); if(ok2){ loadCloudOverview() } }
                             }
                         }else if(msg.contains("404") || msg.contains("暂无") || msg.contains("no cloud data",true)){
-                            if(records.isEmpty()) showCloudMsg("本地暂无号码") else cloudPost(st,"/api/sync",cloudPayload(records,st)){ok2,msg2-> showCloudMsg(if(ok2) S("同步成功") else msg2); if(ok2){ loadCloudOverview(); loadCloudReminderStatus(); cloudPost(st,"/api/check-now",cloudPayload(records,st)){_,_->} } }
+                            if(records.isEmpty()) showCloudMsg("本地暂无号码") else cloudPost(st,"/api/sync",cloudEncryptedPayload(records,st)){ok2,msg2-> showCloudMsg(if(ok2) S("同步成功") else msg2); if(ok2){ loadCloudOverview() } }
                         }else showCloudMsg(msg)
                     }
                 },shape=RoundedCornerShape(14.dp),modifier=Modifier.weight(1f)){Text(S("同步到云端"))}
                 Button({
+                    if(!cloudSignedIn){ showCloudMsg("请先登录云同步账户"); return@Button }
+                    if(cleanCloudApiKey(st.cloudApiKey).isBlank()){
+                        showCloudMsg("缺少数据密钥，请退出后用账号密码重新登录（将自动恢复）")
+                        return@Button
+                    }
+                    showCloudMsg("正在用密码解密并恢复…")
                     cloudGet(st,"/api/sync"){ok,msg->
                         if(ok){
-                            val cloudData=parseCloudPayloadResponse(msg)
-                            if(cloudData.first.isNotEmpty()){
-                                if(records.isNotEmpty()) cloudRestoreChoice=cloudData
-                                else { val ns=mergeCloudSettings(st,cloudData.second); st=ns; onCloudRestore(cloudData.first,ns); showCloudMsg(S("云端恢复成功")+"：${cloudData.first.size} "+S("个号码")) }
-                            }else showCloudMsg(S("云端暂无数据"))
+                            val pull=analyzeCloudSyncResponse(msg,st)
+                            if(pull.records.isNotEmpty()){
+                                applyPulledCloud(pull,st,autoMigrate=true)
+                            }else if(pull.hasEncryptedVault || pull.cloudRecordHint>0){
+                                if(records.isNotEmpty()){
+                                    showCloudMsg("密文与当前密码不匹配。本机有号码，点「同步到云端」用密码重写即可")
+                                }else{
+                                    showCloudMsg("当前密码解不开云端密文。请退出后用正确密码重新登录；或在有本地号码的设备上同步一次。")
+                                }
+                            }else showCloudMsg("云端没有可恢复的号码数据")
                         }else showCloudMsg(msg)
                     }
                 },shape=RoundedCornerShape(14.dp),modifier=Modifier.weight(1f)){Text(S("从云端恢复"))}
@@ -2493,34 +4370,31 @@ fun restoreCloudBackupById(st:App设置, backupId:Int, onResult:(Boolean,String)
             IOSSwitchRow(S("通知一键发邮件"),st.emailQuickEnabled){ st=st.copyMut{emailQuickEnabled=it}; on(st) }
             Text(S("本地通知说明"),fontSize=11.sp,color=Color(0xFF8A94A6),lineHeight=16.sp)
             Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(8.dp)){
-                Button({ cloudPost(st,"/api/test-telegram",cloudPayload(records,st)){ok,msg-> showCloudMsg(if(ok) S("TG 测试已发送") else msg) } },shape=RoundedCornerShape(14.dp),modifier=Modifier.weight(1f)){Text(S("测试TG"))}
-                Button({ cloudPost(st,"/api/test-email",cloudPayload(records,st)){ok,msg-> showCloudMsg(if(ok) S("邮件测试已发送") else msg) } },shape=RoundedCornerShape(14.dp),modifier=Modifier.weight(1f)){Text(S("测试邮件"))}
+                Button({ showCloudMsg("端到端加密后，服务器不再读取号码或提醒配置；这些测试保留在本机执行。") },shape=RoundedCornerShape(14.dp),modifier=Modifier.weight(1f)){Text(S("测试TG"))}
+                Button({ showCloudMsg("端到端加密后，服务器不再读取号码或提醒配置；这些测试保留在本机执行。") },shape=RoundedCornerShape(14.dp),modifier=Modifier.weight(1f)){Text(S("测试邮件"))}
             }
-            Button({ cloudPost(st,"/api/check-now",cloudPayload(records,st)){ok,msg-> showCloudMsg(if(ok) summarizeCloudCheckResponse(msg) else msg); if(ok) loadCloudReminderStatus() } },shape=RoundedCornerShape(14.dp),modifier=Modifier.fillMaxWidth()){Text(S("立即检查到期"))}
+            Button({ showCloudMsg("号码已端到端加密，云端不会解密检查；到期提醒由本机通知继续负责。") },shape=RoundedCornerShape(14.dp),modifier=Modifier.fillMaxWidth()){Text(S("立即检查到期"))}
             Text(S("云端服务说明"),fontSize=12.sp,color=Color(0xFF8A94A6),lineHeight=17.sp)
-            if(cleanCloudApiKey(st.cloudApiKey).isNotBlank()){
-                Text("云端自动检查：每日服务器执行",fontSize=12.sp,color=Color(0xFF374151),lineHeight=17.sp)
-                Text("上次检查：${formatTsShort(cloudReminderLastCheck)}",fontSize=12.sp,color=Color(0xFF374151),lineHeight=17.sp)
-                Text("下次检查：${formatTsShort(cloudReminderNextCheck)}",fontSize=12.sp,color=Color(0xFF374151),lineHeight=17.sp)
-                Text("当前即将到期：${if(cloudReminderDueNow>=0) cloudReminderDueNow.toString() else "-"}",fontSize=12.sp,color=Color(0xFF374151),lineHeight=17.sp)
-                if(cloudReminderStats.isNotBlank()) Text(cloudReminderStats,fontSize=12.sp,color=Color(0xFF8A94A6),lineHeight=17.sp)
+            if(cloudSignedIn){
+                Text("云端同步：仅保存密文包和地图覆盖统计",fontSize=12.sp,color=Color(0xFF374151),lineHeight=17.sp)
+                Text("网页地图会显示 ${cloudCoverage(records).optInt("countryCount",0)} 个国家/地区覆盖",fontSize=12.sp,color=Color(0xFF374151),lineHeight=17.sp)
             }
             if(cloudMsg.isNotBlank()) Text(cloudMsg,fontSize=12.sp,color=Color(0xFF007AFF),lineHeight=17.sp)
         }
 
 
         SettingsSection("云端数据与备份"){
-            if(cleanCloudApiKey(st.cloudApiKey).isBlank()){
-                Text("未设置 API Key，无法查看云端数据状态。",fontSize=12.sp,color=Color(0xFF8A94A6),lineHeight=17.sp)
+            if(!cloudSignedIn){
+                Text("未登录云同步账户，登录后会显示加密包状态和 Web 地图覆盖。",fontSize=12.sp,color=Color(0xFF8A94A6),lineHeight=17.sp)
             }else{
-                Text("当前 Key：${cloudOverviewKeyTail.ifBlank { "..." }}",fontSize=12.sp,color=Color(0xFF374151))
+                Text("当前账户：${st.cloudUsername.ifBlank { "..." }}",fontSize=12.sp,color=Color(0xFF374151))
                 Text("云端号码：${if(cloudOverviewKeyRecords>=0) cloudOverviewKeyRecords.toString() else "-"}",fontSize=13.sp,color=Color(0xFF374151))
-                Text("云端配置：${if(cloudOverviewHasSettings) "已同步" else "未同步"}",fontSize=13.sp,color=Color(0xFF374151))
+                Text("云端加密包：${if(cloudOverviewHasSettings) "已同步" else "未同步"}",fontSize=13.sp,color=Color(0xFF374151))
                 Text("上次同步：${if(cloudOverviewUpdatedAt>0) java.text.SimpleDateFormat("yyyy-MM-dd HH:mm", java.util.Locale.getDefault()).format(java.util.Date(cloudOverviewUpdatedAt)) else "-"}",fontSize=13.sp,color=Color(0xFF374151))
                 if(cloudMsg.isNotBlank()) Text(cloudMsg,fontSize=12.sp,color=Color(0xFF007AFF),lineHeight=17.sp)
                 Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(8.dp)){
-                    Button({ loadCloudOverview(); loadCloudReminderStatus() },shape=RoundedCornerShape(14.dp),modifier=Modifier.weight(1f)){ Text("刷新状态") }
-                    Button({ loadCloudBackups() },shape=RoundedCornerShape(14.dp),modifier=Modifier.weight(1f)){ Text(if(cloudBackupLoading) "加载中..." else "查看备份") }
+                    Button({ loadCloudOverview() },shape=RoundedCornerShape(14.dp),modifier=Modifier.weight(1f)){ Text("刷新状态") }
+                    Button({ runCatching{ ctx.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(cleanBundledCloudUrl(st.cloudUrl)))) } },shape=RoundedCornerShape(14.dp),modifier=Modifier.weight(1f)){ Text("打开 Web 地图") }
                     if(cloudBackupsTotal>cloudBackups.size){
                         Button({ loadCloudBackups(cloudBackupsLimit+20) },shape=RoundedCornerShape(14.dp),modifier=Modifier.weight(1f)){ Text("加载更多") }
                     }
@@ -2536,22 +4410,22 @@ fun restoreCloudBackupById(st:App设置, backupId:Int, onResult:(Boolean,String)
                         val recordsCount=item.optInt("records_count",0)
                         val ts=item.optLong("created_at",0)*1000L
                         val timeText=if(ts>0) java.text.SimpleDateFormat("yyyy-MM-dd HH:mm", java.util.Locale.getDefault()).format(java.util.Date(ts)) else "-"
-                        Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).border(0.6.dp,Color(0xFFE5E7EB),RoundedCornerShape(12.dp)).clickable{ showCloudBackupRestoreConfirm=item }.padding(horizontal=12.dp,vertical=10.dp),verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.SpaceBetween){
+                        Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).border(0.6.dp,Color(0xFFE5E7EB),RoundedCornerShape(12.dp)).motionClickable(pressedScale=.985f){ showCloudBackupRestoreConfirm=item }.padding(horizontal=12.dp,vertical=10.dp),verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.SpaceBetween){
                             Column(Modifier.weight(1f)){
                                 Text("$reason  ·  ${recordsCount}条",fontSize=14.sp,fontWeight=FontWeight.SemiBold,color=Color(0xFF111827),maxLines=1,overflow=TextOverflow.Ellipsis)
                                 Text("$timeText  ·  ID $rid",fontSize=12.sp,color=Color(0xFF8A94A6))
                             }
                             Row(horizontalArrangement=Arrangement.spacedBy(10.dp),verticalAlignment=Alignment.CenterVertically){
-                                Text("详情",fontSize=13.sp,fontWeight=FontWeight.SemiBold,color=Color(0xFF007AFF),modifier=Modifier.clickable{ loadCloudBackupDetail(rid) })
+                                Text("详情",fontSize=13.sp,fontWeight=FontWeight.SemiBold,color=Color(0xFF007AFF),modifier=Modifier.motionClickable{ loadCloudBackupDetail(rid) })
                                 Text("恢复",fontSize=13.sp,fontWeight=FontWeight.SemiBold,color=Color(0xFF007AFF))
                             }
                         }
                     }
                 }else if(cloudBackupLoading.not()){
-                    Text("暂无云端备份记录",fontSize=12.sp,color=Color(0xFF8A94A6),lineHeight=17.sp)
+                    Text("端到端加密模式下，服务器只保存当前密文包；具体号码不会在后台备份明细中展开。",fontSize=12.sp,color=Color(0xFF8A94A6),lineHeight=17.sp)
                 }
 Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(8.dp)){
-                    Button({ showCloudCleanDialog=true },shape=RoundedCornerShape(14.dp),modifier=Modifier.weight(1f)){ Text("清理旧备份") }
+                    Button({ showCloudMsg("端到端同步不展示服务器端号码备份明细。") },shape=RoundedCornerShape(14.dp),modifier=Modifier.weight(1f)){ Text("备份策略") }
                 }
             }
         }
@@ -2562,9 +4436,6 @@ Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(8.dp)){
             var importText by remember { mutableStateOf("") }
             ToolRow("traffic",L("刷流量"),L("选择一个号码执行真实下载流量测试")){ pickTraffic=true }
             ToolRow("dial",L("拨号测试"),L("选择号码并打开系统拨号器")){ pickDial=true }
-            ToolRow("giffgaff","giffgaff eSIM 获取","打开 esim.kim/giffgaff 在线工具"){
-                runCatching { ctx.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://esim.kim/giffgaff"))) }.onFailure { Toast.makeText(ctx, "无法打开浏览器：${it.message}", Toast.LENGTH_SHORT).show() }
-            }
             ToolRow("export_json",L("导出 JSON"),L("生成完整 JSON 备份文本")){ onExportJson() }
             ToolRow("export_csv",L("导出 CSV"),L("生成 CSV 表格文本")){ onExportCsv() }
             ToolRow("import",L("导入数据"),L("粘贴 JSON 或 CSV 恢复号码列表")){ importDlg=true }
@@ -2633,48 +4504,122 @@ Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(8.dp)){
         }
         Spacer(Modifier.height(20.dp))
     }
-    fun generateNewCloudKey(){
-        cloudPost(st,"/api/register","{}"){ok,msg->
-            if(ok){
-                try{
-                    val r=JSONObject(msg); val k=r.optString("apiKey","")
-                    if(k.isNotBlank()){ st=st.copyMut{cloudApiKey=k; cloudEnabled=true}; on(st); showCloudMsg("已生成新的 API Key，已保存") } else showCloudMsg(msg)
-                }catch(_:Exception){ showCloudMsg(msg) }
-            }else showCloudMsg(msg)
-        }
-    }
     if(keyGenerateConfirm){
-        val invalid=cleanCloudApiKey(st.cloudApiKey).isNotBlank() && !isValidCloudApiKey(st.cloudApiKey)
-        CloudDataChoiceDialog(
-            title=if(invalid) "重新生成 API Key？" else "生成云端 API Key？",
-            message=if(invalid) "当前 API Key 格式无效。可以重新生成一个新的云端数据空间；如果你有旧 Key，也可以直接粘贴旧 Key 恢复访问。" else "API Key 用于识别你的云端数据空间。多台设备要同步同一份数据时，请使用同一个 Key。生成后会保存在本机。",
-            primary=if(invalid) "确认重新生成" else "确认生成",
-            secondary="取消",
-            dangerSecondary=false,
-            onDismiss={keyGenerateConfirm=false},
-            onPrimary={keyGenerateConfirm=false; generateNewCloudKey()},
-            onSecondary={keyGenerateConfirm=false}
-        )
-    }
-    if(keyExistingDialog){
-        CloudDataChoiceDialog(
-            title="当前已有 API Key",
-            message="如果重新生成，新 Key 会创建新的云端数据空间。旧 Key 下的数据不会删除，但需要旧 Key 才能再次访问。建议先复制当前 Key。",
-            primary="复制当前 Key",
-            secondary="重新生成",
-            dangerSecondary=true,
-            onDismiss={keyExistingDialog=false},
-            onPrimary={
-                keyExistingDialog=false
-                val clipboard=ctx.getSystemService(android.content.ClipboardManager::class.java)
-                clipboard.setPrimaryClip(android.content.ClipData.newPlainText("api key",cleanCloudApiKey(st.cloudApiKey)))
-                showCloudMsg("已复制当前 API Key")
+        AlertDialog(
+            onDismissRequest={ if(!registerBusy) keyGenerateConfirm=false },
+            title={ Text("注册端到端同步账户") },
+            text={
+                Column(verticalArrangement=Arrangement.spacedBy(10.dp)){
+                    Text("服务地址：${cleanBundledCloudUrl(st.cloudUrl)}",fontSize=12.sp,color=Color(0xFF6B7280),lineHeight=17.sp)
+                    Text("日常：账号+密码登录后会自动从云端恢复数据。注册时显示的私钥只用于忘记密码时重置，日常不需要填写。",fontSize=12.sp,color=Color(0xFF6B7280),lineHeight=17.sp)
+                    Text("私钥只显示一次，请另存；丢失后仍可正常登录同步，但无法再用私钥重置密码。",fontSize=12.sp,color=Color(0xFFC2410C),lineHeight=17.sp)
+                    OutlinedTextField(
+                        value=registerUsername,
+                        onValueChange={ registerUsername=it.trim().take(64) },
+                        modifier=Modifier.fillMaxWidth(),
+                        singleLine=true,
+                        label={ Text("用户名") }
+                    )
+                    OutlinedTextField(
+                        value=registerPassword,
+                        onValueChange={ registerPassword=it },
+                        modifier=Modifier.fillMaxWidth(),
+                        singleLine=true,
+                        visualTransformation=PasswordVisualTransformation(),
+                        label={ Text("密码，至少 8 位") }
+                    )
+                    OutlinedTextField(
+                        value=registerPasswordAgain,
+                        onValueChange={ registerPasswordAgain=it },
+                        modifier=Modifier.fillMaxWidth(),
+                        singleLine=true,
+                        visualTransformation=PasswordVisualTransformation(),
+                        label={ Text("再次输入密码") }
+                    )
+                }
             },
-            onSecondary={keyExistingDialog=false; keyRegenerateConfirm=true}
+            confirmButton={
+                Button(
+                    enabled=!registerBusy,
+                    onClick={
+                        val username=registerUsername.trim()
+                        val password=registerPassword
+                        when{
+                            username.length<3 -> showCloudMsg("用户名至少 3 位")
+                            password.length<8 -> showCloudMsg("密码至少 8 位")
+                            password!=registerPasswordAgain -> showCloudMsg("两次密码不一致")
+                            else -> {
+                                registerBusy=true
+                                val body=JSONObject().put("username",username).put("password",password).put("source","app").toString()
+                                cloudPost(st,"/api/account/register",body){ok,msg->
+                                    registerBusy=false
+                                    if(ok){
+                                        val obj=runCatching{ JSONObject(msg) }.getOrNull()
+                                        val token=obj?.optString("token","") ?: ""
+                                        val privateKey=cleanCloudApiKey(obj?.optString("privateKey","") ?: "")
+                                        val pwdSecret=runCatching{ deriveSimjCloudSecret(username,password) }.getOrDefault("")
+                                        if(token.isBlank()){
+                                            showCloudMsg("注册成功但未返回令牌")
+                                        }else if(pwdSecret.isBlank()){
+                                            showCloudMsg("注册成功但无法派生数据密钥")
+                                        }else{
+                                            // 数据密钥=密码派生；私钥仅展示一次，用于忘记密码
+                                            val ns=st.copyMut{ cloudUrl=cleanBundledCloudUrl(st.cloudUrl); cloudUsername=username; cloudToken=token; cloudApiKey=pwdSecret; cloudDeviceId=cloudDeviceId.ifBlank{UUID.randomUUID().toString()}; cloudEnabled=true; cloudAutoSync=true }
+                                            st=ns
+                                            on(ns)
+                                            keyGenerateConfirm=false
+                                            registerUsername=""
+                                            registerPassword=""
+                                            registerPasswordAgain=""
+                                            if(isValidCloudApiKey(privateKey)) showPrivateKeyOnce=privateKey
+                                            showCloudMsg("注册成功。日常登录只需账号密码即可自动恢复；私钥仅用于找回密码。")
+                                            if(records.isNotEmpty()){
+                                                cloudPost(ns,"/api/sync",cloudEncryptedPayload(records,ns)){ok2,msg2->
+                                                    showCloudMsg(if(ok2) "已同步到新账户：${records.size} 个号码" else msg2)
+                                                    if(ok2){ loadCloudOverview(); loadCloudReminderStatus() }
+                                                }
+                                            }else{
+                                                loadCloudOverview()
+                                            }
+                                        }
+                                    }else{
+                                        showCloudMsg(msg)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                ){ Text(if(registerBusy) "注册中..." else "注册账户") }
+            },
+            dismissButton={
+                TextButton(enabled=!registerBusy,onClick={keyGenerateConfirm=false}){ Text("取消") }
+            }
         )
     }
-    if(keyRegenerateConfirm){
-        IOSConfirmDialog("确认重新生成？","重新生成后，本机将切换到新的云端数据空间。旧云端数据仍保留在旧 Key 下，但需要旧 Key 才能再次访问。",true,{keyRegenerateConfirm=false},{keyRegenerateConfirm=false; generateNewCloudKey()})
+    showPrivateKeyOnce?.let{ pkey ->
+        AlertDialog(
+            onDismissRequest={ /* 必须主动确认，避免误关丢钥 */ },
+            title={ Text("请保存找回密码私钥") },
+            text={
+                Column(verticalArrangement=Arrangement.spacedBy(10.dp)){
+                    Text("私钥只用于忘记密码时重置，日常登录与云端恢复只需账号+密码。服务器不保存此私钥。",fontSize=13.sp,color=Color(0xFF6B7280),lineHeight=18.sp)
+                    Text("请立即复制并另存；丢失后仍可正常登录同步，但无法再用私钥重置密码。",fontSize=13.sp,color=Color(0xFFC2410C),lineHeight=18.sp)
+                    Surface(shape=RoundedCornerShape(12.dp),color=Color(0xFF111827),modifier=Modifier.fillMaxWidth()){
+                        Text(pkey,modifier=Modifier.padding(12.dp),fontSize=12.sp,color=Color(0xFFFFE4E6),lineHeight=17.sp)
+                    }
+                }
+            },
+            confirmButton={
+                Button(onClick={
+                    val cm=ctx.getSystemService(Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+                    cm.setPrimaryClip(android.content.ClipData.newPlainText("simj-private-key",pkey))
+                    showCloudMsg("私钥已复制")
+                }){ Text("复制私钥") }
+            },
+            dismissButton={
+                TextButton(onClick={ showPrivateKeyOnce=null }){ Text("我已保存") }
+            }
+        )
     }
     cloudSyncChoice?.let{ data->
         val cloudRecords=data.first; val cloudSettings=data.second
@@ -2690,7 +4635,7 @@ Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(8.dp)){
                 val merged=mergeRecords(cloudRecords,records)
                 val ns=mergeCloudSettings(st,cloudSettings)
                 st=ns
-                cloudPost(ns,"/api/sync",cloudPayload(merged,ns)){ok,msg-> showCloudMsg(if(ok) "合并同步成功：${merged.size} 个号码" else msg); if(ok) loadCloudOverview() }
+                cloudPost(ns,"/api/sync",cloudEncryptedPayload(merged,ns)){ok,msg-> showCloudMsg(if(ok) "合并同步成功：${merged.size} 个号码" else msg); if(ok) loadCloudOverview() }
             },
             onSecondary={ cloudSyncChoice=null; cloudOverwriteConfirm=true }
         )
@@ -2701,7 +4646,7 @@ Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(8.dp)){
             if(records.isEmpty()){
                 showCloudMsg("本地暂无号码")
             }else{
-                cloudPost(st,"/api/sync",cloudPayload(records,st)){ok,msg-> showCloudMsg(if(ok) "覆盖云端完成：${records.size} 个号码" else msg); if(ok) loadCloudOverview() }
+                cloudPost(st,"/api/sync",cloudEncryptedPayload(records,st)){ok,msg-> showCloudMsg(if(ok) "覆盖云端完成：${records.size} 个号码" else msg); if(ok) loadCloudOverview() }
             }
         })
     }
@@ -2753,8 +4698,8 @@ Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(8.dp)){
                         }
                     }
                     Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(10.dp)){
-                        Box(Modifier.weight(1f).height(48.dp).clip(RoundedCornerShape(16.dp)).background(Color.White).clickable{showCloudBackupDetailId=null; cloudBackupDetailBackup=null; cloudBackupDetailSummary=null},contentAlignment=Alignment.Center){Text("关闭",fontSize=16.sp,fontWeight=FontWeight.SemiBold,color=Color(0xFF007AFF))}
-                        Box(Modifier.weight(1f).height(48.dp).clip(RoundedCornerShape(16.dp)).background(Color(0xFF007AFF)).clickable{
+                        Box(Modifier.weight(1f).height(48.dp).clip(RoundedCornerShape(16.dp)).background(Color.White).motionClickable{showCloudBackupDetailId=null; cloudBackupDetailBackup=null; cloudBackupDetailSummary=null},contentAlignment=Alignment.Center){Text("关闭",fontSize=16.sp,fontWeight=FontWeight.SemiBold,color=Color(0xFF007AFF))}
+                        Box(Modifier.weight(1f).height(48.dp).clip(RoundedCornerShape(16.dp)).background(Color(0xFF007AFF)).motionClickable{
                             showCloudBackupDetailId=null
                             cloudBackupDetailBackup?.let{ showCloudBackupRestoreConfirm=it }
                         },contentAlignment=Alignment.Center){Text("恢复该备份",fontSize=16.sp,fontWeight=FontWeight.SemiBold,color=Color.White)}
@@ -2768,11 +4713,11 @@ Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(8.dp)){
             Surface(shape=RoundedCornerShape(24.dp),color=Color(0xFFF2F3F7),tonalElevation=0.dp,modifier=Modifier.fillMaxWidth()){
                 Column(Modifier.padding(18.dp),verticalArrangement=Arrangement.spacedBy(14.dp),horizontalAlignment=Alignment.CenterHorizontally){
                     Text("清理旧备份",fontSize=20.sp,fontWeight=FontWeight.Bold,color=Color(0xFF111827),textAlign=androidx.compose.ui.text.style.TextAlign.Center)
-                    Text("只保留最近 N 条备份。设置为 0 将清空当前 Key 的全部备份。",fontSize=14.sp,color=Color(0xFF6B7280),lineHeight=20.sp,textAlign=androidx.compose.ui.text.style.TextAlign.Center)
+                    Text("只保留最近 N 条备份。设置为 0 将清空当前账户的全部备份。",fontSize=14.sp,color=Color(0xFF6B7280),lineHeight=20.sp,textAlign=androidx.compose.ui.text.style.TextAlign.Center)
                     OutlinedTextField(value=cloudCleanKeepText,onValueChange={cloudCleanKeepText=it.filter{ch->ch.isDigit()}},modifier=Modifier.fillMaxWidth(),singleLine=true,label={Text("保留条数")})
                     Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(10.dp)){
-                        Box(Modifier.weight(1f).height(48.dp).clip(RoundedCornerShape(16.dp)).background(Color.White).clickable{showCloudCleanDialog=false},contentAlignment=Alignment.Center){Text("取消",fontSize=16.sp,fontWeight=FontWeight.SemiBold,color=Color(0xFF007AFF))}
-                        Box(Modifier.weight(1f).height(48.dp).clip(RoundedCornerShape(16.dp)).background(Color(0xFF007AFF)).clickable{
+                        Box(Modifier.weight(1f).height(48.dp).clip(RoundedCornerShape(16.dp)).background(Color.White).motionClickable{showCloudCleanDialog=false},contentAlignment=Alignment.Center){Text("取消",fontSize=16.sp,fontWeight=FontWeight.SemiBold,color=Color(0xFF007AFF))}
+                        Box(Modifier.weight(1f).height(48.dp).clip(RoundedCornerShape(16.dp)).background(Color(0xFF007AFF)).motionClickable{
                             showCloudCleanDialog=false
                             val keep=cloudCleanKeepText.toIntOrNull()?:20
                             cloudPost(st,"/api/backups/clear",JSONObject().put("keep",keep).toString()){ok,msg->
@@ -2802,7 +4747,7 @@ Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(8.dp)){
                 val ns=mergeCloudSettings(st,cloudSettings)
                 st=ns
                 onCloudRestore(merged,ns)
-                cloudPost(ns,"/api/sync",cloudPayload(merged,ns)){_,_->}
+                cloudPost(ns,"/api/sync",cloudEncryptedPayload(merged,ns)){_,_->}
                 showCloudMsg("合并恢复完成：${merged.size} 个号码，配置已同步")
             },
             onSecondary={
@@ -2818,48 +4763,251 @@ Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(8.dp)){
 
 
 @Composable fun IOSSection(title:String,content:@Composable ColumnScope.()->Unit){
+    val scheme=MaterialTheme.colorScheme
     Column(verticalArrangement=Arrangement.spacedBy(6.dp)){
-        Text(title,fontSize=13.sp,color=Color(0xFF8A94A6),modifier=Modifier.padding(start=4.dp))
-        Card(shape=RoundedCornerShape(20.dp),colors=CardDefaults.cardColors(containerColor=dk(Color(0xFF1C1C1E).copy(alpha=.82f),Color.White.copy(alpha=.82f))),elevation=CardDefaults.cardElevation(0.dp),modifier=Modifier.fillMaxWidth().border(.7.dp,dk(Color(0xFF2C2C2E).copy(alpha=.9f),Color.White.copy(alpha=.9f)),RoundedCornerShape(20.dp))){
+        Text(title,fontSize=13.sp,color=scheme.onSurfaceVariant,modifier=Modifier.padding(start=4.dp))
+        Card(shape=RoundedCornerShape(22.dp),colors=CardDefaults.cardColors(containerColor=scheme.surfaceContainerHigh),elevation=CardDefaults.cardElevation(1.dp),modifier=Modifier.fillMaxWidth().border(.7.dp,scheme.outlineVariant.copy(alpha=.65f),RoundedCornerShape(22.dp))){
             Column(Modifier.padding(12.dp),verticalArrangement=Arrangement.spacedBy(9.dp)){content()}
         }
     }
 }
 
-@Composable fun SettingsSection(title:String,content:@Composable ColumnScope.()->Unit){
+@Composable fun ModernSettingsSection(title:String,content:@Composable ColumnScope.()->Unit){
     var expanded by remember(title){ mutableStateOf(false) }
+    val scheme=MaterialTheme.colorScheme
+    val shape=RoundedCornerShape(22.dp)
+    val arrowRotation by animateFloatAsState(
+        targetValue=if(expanded) 180f else 0f,
+        animationSpec=tween(180),
+        label="sectionArrowRotation"
+    )
+    Surface(
+        shape=shape,
+        color=scheme.surfaceContainerLowest,
+        tonalElevation=1.dp,
+        shadowElevation=0.dp,
+        modifier=Modifier
+            .fillMaxWidth()
+            .border(.9.dp,scheme.outlineVariant.copy(alpha=.5f),shape)
+    ){
+        Column{
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .height(56.dp)
+                    .motionClickable(pressedScale=.985f){expanded=!expanded}
+                    .padding(start=18.dp,end=12.dp),
+                verticalAlignment=Alignment.CenterVertically
+            ){
+                Text(
+                    title,
+                    fontSize=17.sp,
+                    lineHeight=21.sp,
+                    fontWeight=FontWeight.ExtraBold,
+                    color=scheme.onSurface,
+                    modifier=Modifier.weight(1f)
+                )
+                Box(
+                    Modifier
+                        .size(38.dp)
+                        .clip(RoundedCornerShape(16.dp))
+                        .background(if(expanded) scheme.primaryContainer else scheme.surfaceContainerHighest),
+                    contentAlignment=Alignment.Center
+                ){
+                    Icon(
+                        Icons.Rounded.KeyboardArrowDown,
+                        contentDescription=null,
+                        tint=if(expanded) scheme.onPrimaryContainer else scheme.onSurfaceVariant,
+                        modifier=Modifier
+                            .size(25.dp)
+                            .graphicsLayer(rotationZ=arrowRotation)
+                    )
+                }
+                if(false) Surface(shape=RoundedCornerShape(14.dp),color=scheme.surfaceContainerHighest,contentColor=scheme.onSurfaceVariant){
+                    Text(
+                        if(expanded) "⌃" else "⌄",
+                        fontSize=18.sp,
+                        lineHeight=18.sp,
+                        fontWeight=FontWeight.Bold,
+                        modifier=Modifier.padding(horizontal=9.dp,vertical=5.dp)
+                    )
+                }
+            }
+            if(expanded){
+                Box(Modifier.fillMaxWidth().height(1.dp).background(scheme.outlineVariant.copy(alpha=.42f)))
+                Column(
+                    Modifier.padding(start=18.dp,end=18.dp,top=14.dp,bottom=16.dp),
+                    verticalArrangement=Arrangement.spacedBy(13.dp)
+                ){ content() }
+            }
+        }
+    }
+}
+
+@Composable fun ModernIOSValueRow(title:String,value:String,onClick:()->Unit){
+    val scheme=MaterialTheme.colorScheme
+    val shape=RoundedCornerShape(18.dp)
+    Surface(
+        shape=shape,
+        color=scheme.surfaceContainerHighest.copy(alpha=.72f),
+        tonalElevation=1.dp,
+        modifier=Modifier
+            .fillMaxWidth()
+            .border(.8.dp,scheme.outlineVariant.copy(alpha=.54f),shape)
+            .motionClickable(pressedScale=.985f){onClick()}
+    ){
+        Row(
+            Modifier.padding(horizontal=14.dp,vertical=12.dp),
+            verticalAlignment=Alignment.CenterVertically,
+            horizontalArrangement=Arrangement.spacedBy(12.dp)
+        ){
+            Column(Modifier.weight(1f),verticalArrangement=Arrangement.spacedBy(3.dp)){
+                Text(title,fontSize=12.sp,lineHeight=15.sp,fontWeight=FontWeight.Bold,color=scheme.primary,maxLines=1,overflow=TextOverflow.Ellipsis)
+                Text(value,fontSize=15.sp,lineHeight=20.sp,fontWeight=FontWeight.Medium,color=scheme.onSurface,maxLines=1,overflow=TextOverflow.Ellipsis)
+            }
+            Text("›",fontSize=24.sp,lineHeight=24.sp,fontWeight=FontWeight.SemiBold,color=scheme.onSurfaceVariant)
+        }
+    }
+}
+
+@Composable fun ModernIOSField(label:String,value:String,onValue:(String)->Unit,placeholder:String,singleLine:Boolean=true,minLines:Int=1){
+    val scheme=MaterialTheme.colorScheme
+    val shape=RoundedCornerShape(18.dp)
+    Column(verticalArrangement=Arrangement.spacedBy(8.dp)){
+        Text(
+            label,
+            fontSize=13.sp,
+            lineHeight=16.sp,
+            fontWeight=FontWeight.Bold,
+            color=scheme.onSurfaceVariant,
+            modifier=Modifier.padding(start=2.dp)
+        )
+        TextField(
+            value=value,
+            onValueChange=onValue,
+            modifier=Modifier
+                .fillMaxWidth()
+                .heightIn(min=58.dp)
+                .border(1.dp,scheme.outlineVariant.copy(alpha=.46f),shape)
+                .clip(shape),
+            singleLine=singleLine,
+            minLines=minLines,
+            placeholder={
+                Text(
+                    placeholder,
+                    fontSize=14.sp,
+                    lineHeight=18.sp,
+                    color=scheme.onSurfaceVariant.copy(alpha=.58f),
+                    maxLines=1,
+                    overflow=TextOverflow.Ellipsis
+                )
+            },
+            colors=TextFieldDefaults.colors(
+                focusedContainerColor=scheme.surface,
+                unfocusedContainerColor=scheme.surface,
+                focusedIndicatorColor=Color.Transparent,
+                unfocusedIndicatorColor=Color.Transparent,
+                cursorColor=scheme.primary,
+                focusedTextColor=scheme.onSurface,
+                unfocusedTextColor=scheme.onSurface
+            ),
+            textStyle=TextStyle(fontSize=16.sp,lineHeight=22.sp,fontWeight=FontWeight.Medium,color=scheme.onSurface)
+        )
+    }
+}
+
+@Composable fun ModernIOSChip(text:String,selected:Boolean,m:Modifier=Modifier,onClick:()->Unit){
+    val scheme=MaterialTheme.colorScheme
+    val shape=RoundedCornerShape(18.dp)
+    val container=if(selected) scheme.primaryContainer.copy(alpha=.92f) else scheme.surfaceContainerHighest
+    val content=if(selected) scheme.onPrimaryContainer else scheme.onSurfaceVariant
+    val border=if(selected) scheme.primary.copy(alpha=.7f) else scheme.outlineVariant.copy(alpha=.7f)
+    Row(
+        m
+            .height(38.dp)
+            .defaultMinSize(minWidth=66.dp)
+            .clip(shape)
+            .background(container)
+            .border(1.dp,border,shape)
+            .motionClickable(pressedScale=.96f){onClick()}
+            .padding(horizontal=13.dp),
+        verticalAlignment=Alignment.CenterVertically,
+        horizontalArrangement=Arrangement.Center
+    ){
+        Text(text,fontSize=13.sp,lineHeight=16.sp,fontWeight=FontWeight.Bold,color=content,maxLines=1,overflow=TextOverflow.Ellipsis)
+    }
+}
+
+@Composable fun SettingsSection(title:String,content:@Composable ColumnScope.()->Unit){
+    ModernSettingsSection(title,content)
+    return
+    var expanded by remember(title){ mutableStateOf(false) }
+    val scheme=MaterialTheme.colorScheme
     Column(verticalArrangement=Arrangement.spacedBy(0.dp)){
-        Surface(shape=RoundedCornerShape(if(expanded) 20.dp else 18.dp),color=dk(Color(0xFF1C1C1E).copy(alpha=.88f),Color.White.copy(alpha=.88f)),tonalElevation=0.dp,modifier=Modifier.fillMaxWidth().border(.7.dp,dk(Color(0xFF38383A).copy(alpha=.95f),Color.White.copy(alpha=.95f)),RoundedCornerShape(if(expanded) 20.dp else 18.dp))){
+        Surface(shape=RoundedCornerShape(if(expanded) 26.dp else 22.dp),color=scheme.surfaceContainerHigh,tonalElevation=1.dp,modifier=Modifier.fillMaxWidth().border(.8.dp,scheme.outlineVariant.copy(alpha=.65f),RoundedCornerShape(if(expanded) 26.dp else 22.dp))){
             Column{
-                Row(Modifier.fillMaxWidth().height(52.dp).clickable{expanded=!expanded}.padding(horizontal=14.dp),verticalAlignment=Alignment.CenterVertically){
-                    Text(title,fontSize=16.sp,fontWeight=FontWeight.SemiBold,color=dk(Color(0xFFE5E5E7),Color(0xFF111827)),modifier=Modifier.weight(1f))
-                    Text(if(expanded) "⌃" else "›",fontSize=22.sp,color=Color(0xFF8A94A6),fontWeight=FontWeight.SemiBold)
+                Row(Modifier.fillMaxWidth().height(56.dp).motionClickable(pressedScale=.985f){expanded=!expanded}.padding(horizontal=16.dp),verticalAlignment=Alignment.CenterVertically){
+                    Text(title,fontSize=16.sp,fontWeight=FontWeight.SemiBold,color=scheme.onSurface,modifier=Modifier.weight(1f))
+                    Text(if(expanded) "⌃" else "›",fontSize=22.sp,color=scheme.onSurfaceVariant,fontWeight=FontWeight.SemiBold)
                 }
                 if(expanded){
                     IOSDividerLine()
-                    Column(Modifier.padding(12.dp),verticalArrangement=Arrangement.spacedBy(9.dp)){content()}
+                    Column(Modifier.padding(14.dp),verticalArrangement=Arrangement.spacedBy(10.dp)){content()}
                 }
             }
         }
     }
 }
 @Composable fun IOSSwitchRow(title:String,checked:Boolean,onChecked:(Boolean)->Unit){
+    val scheme=MaterialTheme.colorScheme
+    val shape=RoundedCornerShape(18.dp)
+    Surface(
+        shape=shape,
+        color=scheme.surfaceContainerHighest.copy(alpha=.72f),
+        modifier=Modifier
+            .fillMaxWidth()
+            .border(.8.dp,scheme.outlineVariant.copy(alpha=.54f),shape)
+    ){
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .height(58.dp)
+                .padding(horizontal=14.dp),
+            verticalAlignment=Alignment.CenterVertically,
+            horizontalArrangement=Arrangement.SpaceBetween
+        ){
+            Text(title,fontSize=16.sp,lineHeight=20.sp,fontWeight=FontWeight.SemiBold,color=scheme.onSurface)
+            Switch(
+                checked=checked,
+                onCheckedChange=onChecked,
+                colors=SwitchDefaults.colors(
+                    checkedThumbColor=scheme.onPrimary,
+                    checkedTrackColor=scheme.primary,
+                    uncheckedThumbColor=scheme.onSurfaceVariant,
+                    uncheckedTrackColor=scheme.surfaceContainerHighest
+                )
+            )
+        }
+    }
+    return
+    val oldScheme=MaterialTheme.colorScheme
     Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.SpaceBetween){
-        Text(title,fontSize=16.sp,color=dk(Color(0xFFE5E5E7),Color(0xFF111827))); Switch(checked,onChecked)
+        Text(title,fontSize=16.sp,color=oldScheme.onSurface); Switch(checked,onChecked)
     }
 }
 
 fun App设置.mutableState()= mutableStateOf(this)
 
 @Composable fun CloudDataChoiceDialog(title:String,message:String,primary:String,secondary:String,dangerSecondary:Boolean=false,onDismiss:()->Unit,onPrimary:()->Unit,onSecondary:()->Unit){
+    val scheme=MaterialTheme.colorScheme
     Dialog(onDismissRequest=onDismiss){
-        Surface(shape=RoundedCornerShape(24.dp),color=Color(0xFFF2F3F7),tonalElevation=0.dp,modifier=Modifier.fillMaxWidth()){
+        Surface(shape=RoundedCornerShape(28.dp),color=scheme.surfaceContainerHigh,tonalElevation=3.dp,modifier=Modifier.fillMaxWidth()){
             Column(Modifier.padding(18.dp),verticalArrangement=Arrangement.spacedBy(14.dp),horizontalAlignment=Alignment.CenterHorizontally){
-                Text(title,fontSize=20.sp,fontWeight=FontWeight.Bold,color=Color(0xFF111827),textAlign=androidx.compose.ui.text.style.TextAlign.Center)
-                Text(message,fontSize=14.sp,color=Color(0xFF6B7280),lineHeight=20.sp,textAlign=androidx.compose.ui.text.style.TextAlign.Center)
-                Button(onPrimary,modifier=Modifier.fillMaxWidth().height(48.dp),shape=RoundedCornerShape(16.dp),colors=ButtonDefaults.buttonColors(containerColor=Color(0xFF007AFF))){Text(primary,fontSize=16.sp,fontWeight=FontWeight.SemiBold)}
-                Button(onSecondary,modifier=Modifier.fillMaxWidth().height(46.dp),shape=RoundedCornerShape(16.dp),colors=ButtonDefaults.buttonColors(containerColor=if(dangerSecondary) Color(0xFFFF3B30) else Color.White,contentColor=if(dangerSecondary) Color.White else Color(0xFF007AFF))){Text(secondary,fontSize=15.sp,fontWeight=FontWeight.SemiBold)}
-                TextButton(onDismiss){Text(L("取消"),color=Color(0xFF007AFF))}
+                Text(title,fontSize=20.sp,fontWeight=FontWeight.Bold,color=scheme.onSurface,textAlign=androidx.compose.ui.text.style.TextAlign.Center)
+                Text(message,fontSize=14.sp,color=scheme.onSurfaceVariant,lineHeight=20.sp,textAlign=androidx.compose.ui.text.style.TextAlign.Center)
+                Button(onPrimary,modifier=Modifier.fillMaxWidth().height(50.dp),shape=RoundedCornerShape(18.dp)){Text(primary,fontSize=16.sp,fontWeight=FontWeight.SemiBold)}
+                Button(onSecondary,modifier=Modifier.fillMaxWidth().height(48.dp),shape=RoundedCornerShape(18.dp),colors=ButtonDefaults.buttonColors(containerColor=if(dangerSecondary) scheme.error else scheme.secondaryContainer,contentColor=if(dangerSecondary) scheme.onError else scheme.onSecondaryContainer)){Text(secondary,fontSize=15.sp,fontWeight=FontWeight.SemiBold)}
+                TextButton(onDismiss){Text(L("取消"),color=scheme.primary)}
             }
         }
     }
@@ -2873,21 +5021,22 @@ fun App设置.mutableState()= mutableStateOf(this)
                 "Cloudflare" to "https://speed.cloudflare.com/__down?bytes=10485760",
                 "Hetzner" to "https://speed.hetzner.de/10MB.bin",
                 "ThinkBroadband" to "https://ipv4.download.thinkbroadband.com/10MB.zip"
-            ).forEach{ item-> Text(item.first,fontSize=13.sp,fontWeight=FontWeight.SemiBold,color=Color(0xFF00A7D9),modifier=Modifier.clip(RoundedCornerShape(8.dp)).clickable{onChange(st.copyMut{trafficUrl=item.second})}.padding(horizontal=6.dp,vertical=4.dp)) }
+            ).forEach{ item-> Text(item.first,fontSize=13.sp,fontWeight=FontWeight.SemiBold,color=Color(0xFF00A7D9),modifier=Modifier.clip(RoundedCornerShape(8.dp)).motionClickable{onChange(st.copyMut{trafficUrl=item.second})}.padding(horizontal=6.dp,vertical=4.dp)) }
         }
         PlainInput(label=L("默认流量 KB"),value=st.trafficKb.toString(),onValue={ onChange(st.copyMut{trafficKb=it.toDoubleOrNull()?:st.trafficKb}) })
     }
 }
 
 @Composable fun PlainInput(label:String,value:String,onValue:(String)->Unit){
+    val scheme=MaterialTheme.colorScheme
     Column(verticalArrangement=Arrangement.spacedBy(4.dp)){
-        Text(label,fontSize=13.sp,color=Color(0xFF374151))
-        OutlinedTextField(value=value,onValueChange=onValue,modifier=Modifier.fillMaxWidth().heightIn(min=56.dp),singleLine=true,shape=RoundedCornerShape(13.dp),colors=OutlinedTextFieldDefaults.colors(focusedBorderColor=dk(Color(0xFF38383A),Color(0xFFD1D5DB)),unfocusedBorderColor=dk(Color(0xFF38383A),Color(0xFFD1D5DB)),focusedContainerColor=dk(Color(0xFF1C1C1E),Color.White),unfocusedContainerColor=dk(Color(0xFF1C1C1E),Color.White)))
+        Text(label,fontSize=13.sp,color=scheme.onSurfaceVariant)
+        OutlinedTextField(value=value,onValueChange=onValue,modifier=Modifier.fillMaxWidth().heightIn(min=56.dp),singleLine=true,shape=RoundedCornerShape(18.dp),colors=OutlinedTextFieldDefaults.colors(focusedBorderColor=scheme.primary,unfocusedBorderColor=scheme.outlineVariant,focusedContainerColor=scheme.surfaceContainerHighest,unfocusedContainerColor=scheme.surfaceContainerHighest,focusedTextColor=scheme.onSurface,unfocusedTextColor=scheme.onSurface))
     }
 }
 
 fun App设置.copyMut(block:App设置.()->Unit):App设置{ val n=this.copy(); n.block(); return n }
-fun App设置.copy()=App设置(dark,remind天,trafficUrl,trafficKb,tgEnabled,botToken,chatId,keepCycle,backgroundUri,backgroundAlpha,reminderEnabled,notificationEnabled,remindHour,remindMinute,language,emailQuickEnabled,smtpEnabled,smtpHost,smtpPort,smtpUser,smtpPass,smtpFrom,smtpTo,cloudEnabled,cloudUrl,cloudApiKey,cloudTelegramEnabled,cloudEmailEnabled,cloudAutoSync,showFlag,bankCardStyle)
+fun App设置.copy()=App设置(dark,remind天,trafficUrl,trafficKb,tgEnabled,botToken,chatId,keepCycle,backgroundUri,backgroundAlpha,reminderEnabled,notificationEnabled,remindHour,remindMinute,language,emailQuickEnabled,smtpEnabled,smtpHost,smtpPort,smtpUser,smtpPass,smtpFrom,smtpTo,cloudEnabled,cloudUrl,cloudApiKey,cloudTelegramEnabled,cloudEmailEnabled,cloudAutoSync,showFlag,bankCardStyle,cloudToken,cloudUsername,cloudDeviceId)
 @Composable fun Presets(on:(String)->Unit){
     Row(horizontalArrangement=Arrangement.spacedBy(5.dp)){
         mapOf(
@@ -2901,14 +5050,15 @@ fun App设置.copy()=App设置(dark,remind天,trafficUrl,trafficKb,tgEnabled,bot
 
 
 @Composable fun IOSConfirmDialog(title:String,message:String,danger:Boolean=false,onCancel:()->Unit,onConfirm:()->Unit){
+    val scheme=MaterialTheme.colorScheme
     Dialog(onDismissRequest=onCancel){
-        Surface(shape=RoundedCornerShape(24.dp),color=Color(0xFFF2F3F7),tonalElevation=0.dp,modifier=Modifier.fillMaxWidth()){
+        Surface(shape=RoundedCornerShape(28.dp),color=scheme.surfaceContainerHigh,tonalElevation=3.dp,modifier=Modifier.fillMaxWidth()){
             Column(Modifier.padding(18.dp),verticalArrangement=Arrangement.spacedBy(14.dp),horizontalAlignment=Alignment.CenterHorizontally){
-                Text(title,fontSize=20.sp,fontWeight=FontWeight.Bold,color=Color(0xFF111827),textAlign=androidx.compose.ui.text.style.TextAlign.Center)
-                Text(message,fontSize=14.sp,color=Color(0xFF6B7280),lineHeight=20.sp,textAlign=androidx.compose.ui.text.style.TextAlign.Center)
+                Text(title,fontSize=20.sp,fontWeight=FontWeight.Bold,color=scheme.onSurface,textAlign=androidx.compose.ui.text.style.TextAlign.Center)
+                Text(message,fontSize=14.sp,color=scheme.onSurfaceVariant,lineHeight=20.sp,textAlign=androidx.compose.ui.text.style.TextAlign.Center)
                 Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(10.dp)){
-                    Box(Modifier.weight(1f).height(48.dp).clip(RoundedCornerShape(16.dp)).background(Color.White).clickable{onCancel()},contentAlignment=Alignment.Center){Text(L("取消"),fontSize=16.sp,fontWeight=FontWeight.SemiBold,color=Color(0xFF007AFF))}
-                    Box(Modifier.weight(1f).height(48.dp).clip(RoundedCornerShape(16.dp)).background(if(danger) Color(0xFFFF3B30) else Color(0xFF007AFF)).clickable{onConfirm()},contentAlignment=Alignment.Center){Text(L("确认"),fontSize=16.sp,fontWeight=FontWeight.SemiBold,color=Color.White)}
+                    Box(Modifier.weight(1f).height(50.dp).clip(RoundedCornerShape(18.dp)).background(scheme.secondaryContainer).motionClickable{onCancel()},contentAlignment=Alignment.Center){Text(L("取消"),fontSize=16.sp,fontWeight=FontWeight.SemiBold,color=scheme.onSecondaryContainer)}
+                    Box(Modifier.weight(1f).height(50.dp).clip(RoundedCornerShape(18.dp)).background(if(danger) scheme.error else scheme.primary).motionClickable{onConfirm()},contentAlignment=Alignment.Center){Text(L("确认"),fontSize=16.sp,fontWeight=FontWeight.SemiBold,color=if(danger) scheme.onError else scheme.onPrimary)}
                 }
             }
         }
@@ -2921,17 +5071,18 @@ fun App设置.copy()=App设置(dark,remind天,trafficUrl,trafficKb,tgEnabled,bot
     var confirm by remember{mutableStateOf(false)}
     var result by remember{mutableStateOf<String?>(null)}
     val lang = LocalAppLanguage.current
+    val scheme=MaterialTheme.colorScheme
     Dialog(onDismissRequest=onDismiss){
-        Surface(shape=RoundedCornerShape(28.dp),color=Color(0xFFF2F3F7),tonalElevation=0.dp,modifier=Modifier.fillMaxWidth()){
+        Surface(shape=RoundedCornerShape(30.dp),color=scheme.surfaceContainerHigh,tonalElevation=3.dp,modifier=Modifier.fillMaxWidth()){
             Column(Modifier.padding(18.dp),verticalArrangement=Arrangement.spacedBy(14.dp)){
                 Row(verticalAlignment=Alignment.CenterVertically){
-                    Box(Modifier.size(42.dp).clip(RoundedCornerShape(13.dp)).background(Color(0xFF007AFF)),contentAlignment=Alignment.Center){Text("▥",fontSize=22.sp,color=Color.White,fontWeight=FontWeight.Bold)}
+                    Box(Modifier.size(44.dp).clip(RoundedCornerShape(16.dp)).background(scheme.primaryContainer),contentAlignment=Alignment.Center){Text("▥",fontSize=22.sp,color=scheme.onPrimaryContainer,fontWeight=FontWeight.Bold)}
                     Spacer(Modifier.width(10.dp))
-                    Column(Modifier.weight(1f)){Text(L("刷流量"),fontSize=22.sp,fontWeight=FontWeight.Bold,color=Color(0xFF111827));Text(L("真实下载数据测试"),fontSize=12.sp,color=Color(0xFF8A94A6))}
-                    TextButton(onDismiss){Text(L("关闭"),color=Color(0xFF007AFF))}
+                    Column(Modifier.weight(1f)){Text(L("刷流量"),fontSize=22.sp,fontWeight=FontWeight.Bold,color=scheme.onSurface);Text(L("真实下载数据测试"),fontSize=12.sp,color=scheme.onSurfaceVariant)}
+                    TextButton(onDismiss){Text(L("关闭"),color=scheme.primary)}
                 }
                 IOSSection(L("号码")){
-                    Row(verticalAlignment=Alignment.CenterVertically){Text(r.flag,fontSize=24.sp);Spacer(Modifier.width(8.dp));Column{Text(r.operator.ifBlank{r.countryName},fontWeight=FontWeight.SemiBold);Text("${r.countryCode} ${formatNumber(r.number)}",fontSize=13.sp,color=Color(0xFF6B7280))}}
+                    Row(verticalAlignment=Alignment.CenterVertically){Text(r.flag,fontSize=24.sp);Spacer(Modifier.width(8.dp));Column{Text(r.operator.ifBlank{r.countryName},fontWeight=FontWeight.SemiBold,color=scheme.onSurface);Text("${r.countryCode} ${formatNumber(r.number)}",fontSize=13.sp,color=scheme.onSurfaceVariant)}}
                 }
                 IOSSection(L("下载测试接口")){
                     PlainInput(label="URL",value=url,onValue={url=it})
@@ -2948,12 +5099,12 @@ fun App设置.copy()=App设置(dark,remind天,trafficUrl,trafficKb,tgEnabled,bot
                     Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(7.dp)){
                         listOf("100KB","1MB","5MB","10MB").forEach{ IOSChip(it, amount==it, Modifier.weight(1f)){amount=it} }
                     }
-                    Text(L("204 / 空响应接口不能真正消耗流量，建议使用 Cloudflare 或 Hetzner。"),fontSize=12.sp,color=Color(0xFF8A94A6),lineHeight=17.sp)
+                    Text(L("204 / 空响应接口不能真正消耗流量，建议使用 Cloudflare 或 Hetzner。"),fontSize=12.sp,color=scheme.onSurfaceVariant,lineHeight=17.sp)
                 }
                 result?.let{
-                    Box(Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(Color.White).padding(12.dp)){Text(it,fontSize=13.sp,color=Color(0xFF374151))}
+                    Box(Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(scheme.surfaceContainerHighest).padding(12.dp)){Text(it,fontSize=13.sp,color=scheme.onSurface)}
                 }
-                Button(onClick={confirm=true},modifier=Modifier.fillMaxWidth().height(52.dp),shape=RoundedCornerShape(17.dp),colors=ButtonDefaults.buttonColors(containerColor=Color(0xFF007AFF))){Text(L("开始刷流量"),fontSize=16.sp,fontWeight=FontWeight.SemiBold)}
+                Button(onClick={confirm=true},modifier=Modifier.fillMaxWidth().height(52.dp),shape=RoundedCornerShape(18.dp)){Text(L("开始刷流量"),fontSize=16.sp,fontWeight=FontWeight.SemiBold)}
             }
         }
     }
@@ -2966,19 +5117,22 @@ fun App设置.copy()=App设置(dark,remind天,trafficUrl,trafficKb,tgEnabled,bot
 }
 
 @Composable fun IOSChip(text:String,selected:Boolean,m:Modifier=Modifier,onClick:()->Unit){
-    Box(m.height(34.dp).clip(RoundedCornerShape(12.dp)).background(if(selected) Color(0xFF007AFF) else Color(0xFFF4F5F8)).border(.7.dp,if(selected) Color(0xFF007AFF) else Color(0xFFE5E7EB),RoundedCornerShape(12.dp)).clickable{onClick()},contentAlignment=Alignment.Center){Text(text,fontSize=12.sp,fontWeight=FontWeight.SemiBold,color=if(selected) Color.White else Color(0xFF007AFF),maxLines=1,overflow=TextOverflow.Ellipsis)}
+    ModernIOSChip(text,selected,m,onClick)
+    return
+    val scheme=MaterialTheme.colorScheme
+    Box(m.height(36.dp).clip(RoundedCornerShape(18.dp)).background(if(selected) scheme.primaryContainer else scheme.surfaceContainerHighest).border(.8.dp,if(selected) scheme.primary else scheme.outlineVariant,RoundedCornerShape(18.dp)).motionClickable{onClick()},contentAlignment=Alignment.Center){Text(text,fontSize=12.sp,fontWeight=FontWeight.SemiBold,color=if(selected) scheme.onPrimaryContainer else scheme.primary,maxLines=1,overflow=TextOverflow.Ellipsis)}
 }
 
 
 
 fun csvEscape(v:String)= if(v.any{ it==',' || it=='"' || it=='\n' || it=='\r' }) "\""+v.replace("\"","\"\"")+"\"" else v
 fun csvLine(values:List<String>)=values.joinToString(","){csvEscape(it)}
-fun recordFields(r:PhoneNumberRecord)=listOf(r.id,r.countryCode,r.countryName,r.flag,r.number,r.operator,r.expireDate,r.note,r.balance,r.eid,r.smdp,r.activationCode,r.startDate,r.createdAt,r.activatedAt,r.longTerm.toString(),r.cycleDays.toString(),r.signalStatus,r.cardType,r.cardBackgroundAssetName,r.cyclePaymentMinorUnits.toString(),r.currencyCode)
-val recordHeader=listOf("id","countryCode","countryName","flag","number","operator","expireDate","note","balance","eid","smdp","activationCode","startDate","createdAt","activatedAt","longTerm","cycleDays","signalStatus","cardType","cardBackgroundAssetName","cyclePaymentMinorUnits","currencyCode")
+fun recordFields(r:PhoneNumberRecord)=listOf(r.id,r.countryCode,r.countryName,r.flag,r.number,r.operator,r.expireDate,r.note,r.balance,r.eid,r.smdp,r.activationCode,r.startDate,r.createdAt,r.activatedAt,r.longTerm.toString(),r.cycleDays.toString(),r.signalStatus,r.cardType,r.cardBackgroundAssetName,r.cyclePaymentMinorUnits.toString(),r.currencyCode,r.sortOrder.toString())
+val recordHeader=listOf("id","countryCode","countryName","flag","number","operator","expireDate","note","balance","eid","smdp","activationCode","startDate","createdAt","activatedAt","longTerm","cycleDays","signalStatus","cardType","cardBackgroundAssetName","cyclePaymentMinorUnits","currencyCode","sortOrder")
 
-fun settingsToJson(s:App设置):JSONObject = JSONObject().put("dark",s.dark).put("remind天",s.remind天).put("trafficUrl",s.trafficUrl).put("trafficKb",s.trafficKb).put("tgEnabled",s.tgEnabled).put("botToken",s.botToken).put("chatId",s.chatId).put("keepCycle",s.keepCycle).put("backgroundUri",s.backgroundUri).put("backgroundAlpha",s.backgroundAlpha.toDouble()).put("reminderEnabled",s.reminderEnabled).put("notificationEnabled",s.notificationEnabled).put("remindHour",s.remindHour).put("remindMinute",s.remindMinute).put("language",s.language).put("emailQuickEnabled",s.emailQuickEnabled).put("smtpEnabled",s.smtpEnabled).put("smtpHost",s.smtpHost).put("smtpPort",s.smtpPort).put("smtpUser",s.smtpUser).put("smtpPass",s.smtpPass).put("smtpFrom",s.smtpFrom).put("smtpTo",s.smtpTo).put("cloudEnabled",s.cloudEnabled).put("cloudUrl",s.cloudUrl).put("cloudApiKey",s.cloudApiKey).put("cloudTelegramEnabled",s.cloudTelegramEnabled).put("cloudEmailEnabled",s.cloudEmailEnabled).put("cloudAutoSync",s.cloudAutoSync).put("showFlag",s.showFlag).put("bankCardStyle",s.bankCardStyle)
+fun settingsToJson(s:App设置):JSONObject = JSONObject().put("dark",s.dark).put("remind天",s.remind天).put("trafficUrl",s.trafficUrl).put("trafficKb",s.trafficKb).put("tgEnabled",s.tgEnabled).put("botToken",s.botToken).put("chatId",s.chatId).put("keepCycle",s.keepCycle).put("backgroundUri",s.backgroundUri).put("backgroundAlpha",s.backgroundAlpha.toDouble()).put("reminderEnabled",s.reminderEnabled).put("notificationEnabled",s.notificationEnabled).put("remindHour",s.remindHour).put("remindMinute",s.remindMinute).put("language",s.language).put("emailQuickEnabled",s.emailQuickEnabled).put("smtpEnabled",s.smtpEnabled).put("smtpHost",s.smtpHost).put("smtpPort",s.smtpPort).put("smtpUser",s.smtpUser).put("smtpPass",s.smtpPass).put("smtpFrom",s.smtpFrom).put("smtpTo",s.smtpTo).put("cloudEnabled",s.cloudEnabled).put("cloudUrl",cleanBundledCloudUrl(s.cloudUrl)).put("cloudApiKey",s.cloudApiKey).put("cloudTelegramEnabled",s.cloudTelegramEnabled).put("cloudEmailEnabled",s.cloudEmailEnabled).put("cloudAutoSync",s.cloudAutoSync).put("showFlag",s.showFlag).put("bankCardStyle",s.bankCardStyle).put("cloudToken",s.cloudToken).put("cloudUsername",s.cloudUsername).put("cloudDeviceId",s.cloudDeviceId)
 
-fun settingsFromJson(o:JSONObject):App设置 = App设置(dark=o.optBoolean("dark",false),remind天=o.optInt("remind天",7),trafficUrl=o.optString("trafficUrl","https://speed.cloudflare.com/__down?bytes=10485760"),trafficKb=o.optDouble("trafficKb",1.0),tgEnabled=o.optBoolean("tgEnabled",false),botToken=o.optString("botToken",""),chatId=o.optString("chatId",""),keepCycle=o.optString("keepCycle","月"),backgroundUri=o.optString("backgroundUri",""),backgroundAlpha=o.optDouble("backgroundAlpha",0.72).toFloat(),reminderEnabled=o.optBoolean("reminderEnabled",true),notificationEnabled=o.optBoolean("notificationEnabled",true),remindHour=o.optInt("remindHour",9),remindMinute=o.optInt("remindMinute",0),language=o.optString("language","简体中文"),emailQuickEnabled=o.optBoolean("emailQuickEnabled",true),smtpEnabled=o.optBoolean("smtpEnabled",false),smtpHost=o.optString("smtpHost",""),smtpPort=o.optInt("smtpPort",465),smtpUser=o.optString("smtpUser",""),smtpPass=o.optString("smtpPass",""),smtpFrom=o.optString("smtpFrom",""),smtpTo=o.optString("smtpTo",""),cloudEnabled=o.optBoolean("cloudEnabled",false),cloudUrl=o.optString("cloudUrl","https://ccs.ziranaa.top:16670"),cloudApiKey=o.optString("cloudApiKey",""),cloudTelegramEnabled=o.optBoolean("cloudTelegramEnabled",true),cloudEmailEnabled=o.optBoolean("cloudEmailEnabled",true),cloudAutoSync=o.optBoolean("cloudAutoSync",false),showFlag=o.optBoolean("showFlag",true),bankCardStyle=o.optBoolean("bankCardStyle",false))
+fun settingsFromJson(o:JSONObject):App设置 = App设置(dark=o.optBoolean("dark",false),remind天=o.optInt("remind天",7),trafficUrl=o.optString("trafficUrl","https://speed.cloudflare.com/__down?bytes=10485760"),trafficKb=o.optDouble("trafficKb",1.0),tgEnabled=o.optBoolean("tgEnabled",false),botToken=o.optString("botToken",""),chatId=o.optString("chatId",""),keepCycle=o.optString("keepCycle","月"),backgroundUri=o.optString("backgroundUri",""),backgroundAlpha=o.optDouble("backgroundAlpha",0.72).toFloat(),reminderEnabled=o.optBoolean("reminderEnabled",true),notificationEnabled=o.optBoolean("notificationEnabled",true),remindHour=o.optInt("remindHour",9),remindMinute=o.optInt("remindMinute",0),language=o.optString("language","简体中文"),emailQuickEnabled=o.optBoolean("emailQuickEnabled",true),smtpEnabled=o.optBoolean("smtpEnabled",false),smtpHost=o.optString("smtpHost",""),smtpPort=o.optInt("smtpPort",465),smtpUser=o.optString("smtpUser",""),smtpPass=o.optString("smtpPass",""),smtpFrom=o.optString("smtpFrom",""),smtpTo=o.optString("smtpTo",""),cloudEnabled=o.optBoolean("cloudEnabled",false),cloudUrl=cleanBundledCloudUrl(o.optString("cloudUrl","")),cloudApiKey=o.optString("cloudApiKey",""),cloudTelegramEnabled=o.optBoolean("cloudTelegramEnabled",true),cloudEmailEnabled=o.optBoolean("cloudEmailEnabled",true),cloudAutoSync=o.optBoolean("cloudAutoSync",false),showFlag=o.optBoolean("showFlag",true),bankCardStyle=o.optBoolean("bankCardStyle",false),cloudToken=o.optString("cloudToken",""),cloudUsername=o.optString("cloudUsername",""),cloudDeviceId=o.optString("cloudDeviceId",""))
 
 fun exportRecordsJson(records:List<PhoneNumberRecord>,settings:App设置):String{
     val root=JSONObject()
@@ -3010,11 +5164,16 @@ fun parseRecordObject(o:JSONObject)=PhoneNumberRecord(
     id=o.optString("id",UUID.randomUUID().toString()), countryCode=o.optString("countryCode","+86"), countryName=o.optString("countryName","中国"), flag=o.optString("flag","🇨🇳"), number=o.optString("number"), operator=o.optString("operator"), expireDate=o.optString("expireDate",LocalDate.now().plusDays(30).toString()), note=o.optString("note"),
     balance=o.optString("balance"), eid=o.optString("eid"), smdp=o.optString("smdp"), activationCode=o.optString("activationCode"), startDate=o.optString("startDate",LocalDate.now().toString()), createdAt=o.optString("createdAt",LocalDate.now().toString()), activatedAt=o.optString("activatedAt"), longTerm=o.optBoolean("longTerm",false), cycleDays=o.optInt("cycleDays",30), signalStatus=o.optString("signalStatus","在线"), tags=o.optString("tags",""), transactionNotes=o.optString("transactionNotes",""), customPrompt=o.optString("customPrompt",""), websiteURL=o.optString("websiteURL",""), cyclePaymentMinorUnits=o.optInt("cyclePaymentMinorUnits",0), currencyCode=o.optString("currencyCode",""), cardBackgroundAssetName=o.optString("cardBackgroundAssetName",""), cardColorHex=o.optString("cardColorHex",""), cardType=o.optString("cardType","prepaid"), sortOrder=o.optInt("sortOrder",0)
 )
+fun hasRecordPayload(o:JSONObject):Boolean = listOf("id","number","phoneNumber","operator","carrier","countryCode","countryName","flag","eid","smdp","smdpAddress","activationCode","expireDate","expiryDate","note","balance","cardType","cardBackgroundAssetName").any{ o.optString(it).isNotBlank() }
+fun parseRecordArray(arr:JSONArray):List<PhoneNumberRecord> = (0 until arr.length()).mapNotNull{ idx->
+    val o=arr.optJSONObject(idx) ?: return@mapNotNull null
+    if(hasRecordPayload(o)) parseRecordObject(o) else null
+}
 fun parseRecordsJson(text:String):Pair<List<PhoneNumberRecord>,App设置?>{
     return runCatching{
         val trimmed=text.trim()
-        if(trimmed.startsWith("[")) Pair(JSONArray(trimmed).let{ arr-> (0 until arr.length()).map{ parseRecordObject(arr.getJSONObject(it)) }.filter{it.number.isNotBlank()} },null)
-        else { val obj=JSONObject(trimmed); val arr=obj.getJSONArray("records"); val s=if(obj.has("settings")) settingsFromJson(obj.getJSONObject("settings")) else null; Pair((0 until arr.length()).map{ parseRecordObject(arr.getJSONObject(it)) }.filter{it.number.isNotBlank()},s) }
+        if(trimmed.startsWith("[")) Pair(parseRecordArray(JSONArray(trimmed)),null)
+        else { val obj=JSONObject(trimmed); val arr=obj.getJSONArray("records"); val s=if(obj.has("settings")) settingsFromJson(obj.getJSONObject("settings")) else null; Pair(parseRecordArray(arr),s) }
     }.getOrElse{ Pair(emptyList(),null) }
 }
 
@@ -3025,8 +5184,8 @@ fun parseRecordsCsv(text:String):List<PhoneNumberRecord>{
         val header=splitCsvLine(lines.first()).map{it.trim()}
         lines.drop(1).mapNotNull{ line->
             val vals=splitCsvLine(line); val map=header.mapIndexedNotNull{ i,k-> vals.getOrNull(i)?.let{k to it} }.toMap()
-            val o=JSONObject(); map.forEach{(k,v)-> when(k){"longTerm"->o.put(k,v.toBoolean());"cycleDays"->o.put(k,v.toIntOrNull()?:30);"cyclePaymentMinorUnits"->o.put(k,v.toIntOrNull()?:0);else->o.put(k,v)} }
-            parseRecordObject(o).takeIf{it.number.isNotBlank()}
+            val o=JSONObject(); map.forEach{(k,v)-> when(k){"longTerm"->o.put(k,v.toBoolean());"cycleDays"->o.put(k,v.toIntOrNull()?:30);"cyclePaymentMinorUnits"->o.put(k,v.toIntOrNull()?:0);"sortOrder"->o.put(k,v.toIntOrNull()?:0);else->o.put(k,v)} }
+            parseRecordObject(o).takeIf{hasRecordPayload(o)}
         }
     }.getOrElse{ emptyList() }
 }

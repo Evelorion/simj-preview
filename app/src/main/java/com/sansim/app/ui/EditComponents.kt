@@ -8,6 +8,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material3.Text
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -22,6 +23,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
+import com.sansim.app.motionClickable
 import com.sansim.app.LocalIsDark
 
 @Composable
@@ -33,10 +35,139 @@ private fun dk(dark: Color, light: Color): Color =
  * Tags are stored as comma-separated string.
  */
 @Composable
+private fun ModernTagSelector(
+    selectedTags: String,
+    onTagsChanged: (String) -> Unit
+) {
+    val scheme = MaterialTheme.colorScheme
+    val presetTags = listOf("保号卡", "旅行备用", "测试卡", "中国卡")
+    val currentList = selectedTags.split(",").map { it.trim() }.filter { it.isNotBlank() }
+    var customTagInput by remember { mutableStateOf("") }
+
+    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            presetTags.take(2).forEach { tag ->
+                ModernTagChip(tag, tag in currentList, Modifier.weight(1f)) {
+                    onTagsChanged(toggleTag(selectedTags, tag))
+                }
+            }
+        }
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            presetTags.drop(2).forEach { tag ->
+                ModernTagChip(tag, tag in currentList, Modifier.weight(1f)) {
+                    onTagsChanged(toggleTag(selectedTags, tag))
+                }
+            }
+        }
+
+        val customTags = currentList.filter { it !in presetTags }
+        if (customTags.isNotEmpty()) {
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                customTags.forEach { tag ->
+                    ModernTagChip(tag, true) {
+                        onTagsChanged(toggleTag(selectedTags, tag))
+                    }
+                }
+            }
+        }
+
+        Row(
+            Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            val inputShape = RoundedCornerShape(16.dp)
+            BasicTextField(
+                value = customTagInput,
+                onValueChange = { customTagInput = it },
+                modifier = Modifier
+                    .weight(1f)
+                    .height(46.dp)
+                    .clip(inputShape)
+                    .background(scheme.surface)
+                    .border(1.dp, scheme.outlineVariant.copy(alpha = .50f), inputShape)
+                    .padding(horizontal = 14.dp, vertical = 12.dp),
+                singleLine = true,
+                textStyle = TextStyle(
+                    fontSize = 15.sp,
+                    fontWeight = FontWeight.Medium,
+                    color = scheme.onSurface
+                ),
+                cursorBrush = SolidColor(scheme.primary),
+                decorationBox = { inner ->
+                    Box(contentAlignment = Alignment.CenterStart) {
+                        if (customTagInput.isEmpty()) {
+                            Text(
+                                "添加自定义标签",
+                                fontSize = 15.sp,
+                                fontWeight = FontWeight.Medium,
+                                color = scheme.onSurfaceVariant.copy(alpha = .62f)
+                            )
+                        }
+                        inner()
+                    }
+                }
+            )
+            Box(
+                Modifier
+                    .size(46.dp)
+                    .clip(RoundedCornerShape(16.dp))
+                    .background(scheme.primary)
+                    .motionClickable {
+                        val trimmed = customTagInput.trim()
+                        if (trimmed.isNotBlank() && trimmed !in currentList) {
+                            val newTags = if (selectedTags.isBlank()) trimmed else "$selectedTags,$trimmed"
+                            onTagsChanged(newTags)
+                            customTagInput = ""
+                        }
+                    },
+                contentAlignment = Alignment.Center
+            ) {
+                Text("+", fontSize = 20.sp, fontWeight = FontWeight.Bold, color = scheme.onPrimary)
+            }
+        }
+    }
+}
+
+@Composable
+private fun ModernTagChip(
+    text: String,
+    selected: Boolean,
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit
+) {
+    val scheme = MaterialTheme.colorScheme
+    val shape = RoundedCornerShape(18.dp)
+    Box(
+        modifier
+            .height(42.dp)
+            .defaultMinSize(minWidth = 86.dp)
+            .clip(shape)
+            .background(if (selected) scheme.primary else scheme.surfaceContainerHighest)
+            .border(1.dp, if (selected) scheme.primary else scheme.outlineVariant.copy(alpha = .72f), shape)
+            .motionClickable { onClick() },
+        contentAlignment = Alignment.Center
+    ) {
+        Text(
+            text,
+            fontSize = 14.sp,
+            lineHeight = 17.sp,
+            fontWeight = FontWeight.Bold,
+            color = if (selected) scheme.onPrimary else scheme.onSurfaceVariant,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.padding(horizontal = 12.dp)
+        )
+    }
+}
+
+@Composable
 fun TagSelector(
     selectedTags: String,
     onTagsChanged: (String) -> Unit
 ) {
+    ModernTagSelector(selectedTags, onTagsChanged)
+    return
     val presetTags = listOf("保号卡", "旅行备用", "测试卡", "中国卡")
     val currentList = selectedTags.split(",").map { it.trim() }.filter { it.isNotBlank() }
     var customTagInput by remember { mutableStateOf("") }
@@ -125,7 +256,7 @@ fun TagSelector(
                     .height(36.dp)
                     .clip(RoundedCornerShape(10.dp))
                     .background(Color(0xFF007AFF))
-                    .clickable {
+                    .motionClickable {
                         val trimmed = customTagInput.trim()
                         if (trimmed.isNotBlank() && trimmed !in currentList) {
                             val newTags = if (selectedTags.isBlank()) trimmed
@@ -169,7 +300,7 @@ private fun TagChip(
                 if (selected) Color(0xFF007AFF) else Color(0xFFE5E7EB),
                 RoundedCornerShape(12.dp)
             )
-            .clickable { onClick() },
+            .motionClickable { onClick() },
         contentAlignment = Alignment.Center
     ) {
         Text(
@@ -442,7 +573,7 @@ fun CardBackgroundPicker(
                                 if (isSelected) Color(0xFF007AFF) else dk(Color(0xFF38383A), Color(0xFFE5E7EB)),
                                 RoundedCornerShape(10.dp)
                             )
-                            .clickable { onSelect(fileName) }
+                            .motionClickable(pressedScale = .985f) { onSelect(fileName) }
                     ) {
                         AsyncImage(
                             model = "file:///android_asset/card_backgrounds/$fileName",
@@ -491,7 +622,7 @@ fun CardBackgroundPicker(
                         Box(
                             Modifier.weight(1f).height(54.dp).clip(RoundedCornerShape(10.dp))
                                 .border(if(isSelected) 2.dp else 0.7.dp, if(isSelected) Color(0xFF007AFF) else dk(Color(0xFF38383A), Color(0xFFE5E7EB)), RoundedCornerShape(10.dp))
-                                .clickable { onSelect(fileName) }
+                                .motionClickable(pressedScale = .985f) { onSelect(fileName) }
                         ) {
                             AsyncImage(model = "file:///android_asset/bank_card_backgrounds/$fileName", contentDescription = fileName, modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
                             Box(Modifier.align(Alignment.BottomStart).background(Color.Black.copy(alpha=.42f)).padding(horizontal=6.dp,vertical=2.dp)){
@@ -510,7 +641,7 @@ fun CardBackgroundPicker(
         // Clear button
         if (currentAssetName.isNotBlank()) {
             Box(
-                Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).clickable { onSelect("") }.padding(vertical = 8.dp),
+                Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).motionClickable { onSelect("") }.padding(vertical = 8.dp),
                 contentAlignment = Alignment.Center
             ) {
                 Text("清除背景", fontSize = 13.sp, color = Color(0xFF8A94A6))
@@ -561,7 +692,7 @@ fun ColorPickerRow(
                             if (isSelected) Color.White else Color(0xFF38383A).copy(alpha = 0.3f),
                             CircleShape
                         )
-                        .clickable { onColorChanged(hex) },
+                        .motionClickable { onColorChanged(hex) },
                     contentAlignment = Alignment.Center
                 ) {
                     if (isSelected) {

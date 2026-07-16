@@ -1,5 +1,6 @@
 package com.sansim.app.update
 
+import com.sansim.app.BuildConfig
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
@@ -14,12 +15,13 @@ data class UpdateInfo(
 )
 
 object UpdateChecker {
-    private const val REPO_OWNER = "yanglh1"
-    private const val REPO_NAME = "SimJ"
+    private val repoOwner = BuildConfig.SIMJ_UPDATE_REPO_OWNER.trim()
+    private val repoName = BuildConfig.SIMJ_UPDATE_REPO_NAME.trim()
 
     suspend fun check(currentVersion: String): UpdateInfo? = withContext(Dispatchers.IO) {
+        if (repoOwner.isBlank() || repoName.isBlank()) return@withContext null
         runCatching {
-            val url = URL("https://api.github.com/repos/$REPO_OWNER/$REPO_NAME/releases/latest")
+            val url = URL("https://api.github.com/repos/$repoOwner/$repoName/releases/latest")
             val conn = url.openConnection() as HttpURLConnection
             conn.setRequestProperty("Accept", "application/vnd.github.v3+json")
             conn.connectTimeout = 10000

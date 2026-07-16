@@ -1,813 +1,1681 @@
 #!/usr/bin/env python3
-import json, sqlite3, time, threading, ssl, smtplib, urllib.parse, urllib.request, secrets, re, uuid, os
+"""
+simJ Cloud — End-to-End Encrypted backend (v6)
+
+Security model
+--------------
+* Login password: PBKDF2 hash stored server-side (login only).
+* Vault crypto (App/Web): AES-256-GCM key derived from ACCOUNT PASSWORD
+  (PBKDF2 310000, salt from username). Server NEVER decrypts vault.
+* privateKey: random, shown ONCE at register; only SHA-256 stored.
+  Used ONLY for password-reset identity — NOT for vault encryption.
+* coverage_json: per-account map metadata + optional number card samples
+  (returned only to authenticated owner). Used by globe highlight / web cards.
+
+Full developer guide: repo docs/DEVELOPMENT.md
+"""
+from __future__ import annotations
+
+import hashlib
+import hmac
+import json
+import mimetypes
+import os
+import re
+import secrets
+import sqlite3
+import threading
+import time
+import urllib.parse
+import uuid
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from email.mime.text import MIMEText
-from email.header import Header
-from email.utils import formataddr
 from pathlib import Path
-from datetime import date
 
-DEFAULT_BASE = Path('/opt/simjiang-reminder')
-BASE = Path(os.getenv('SIMJ_BASE') or DEFAULT_BASE)
-DB = BASE / 'data.db'
-HOST = '0.0.0.0'
-PORT = 8787
-KEY_RE = re.compile(r'^[A-Za-z0-9_-]{24,80}$')
-SCHEMA_VERSION = '3'
-DEFAULT_CHECK_HOUR = int(os.getenv('SIMJ_REMINDER_HOUR') or '9')
-DEFAULT_CHECK_MINUTE = int(os.getenv('SIMJ_REMINDER_MINUTE') or '0')
-_last_daily_check_day = ''
+DEFAULT_BASE = Path("/opt/simjiang-reminder")
+BASE = Path(os.getenv("SIMJ_BASE") or DEFAULT_BASE)
+DB = BASE / "data.db"
+WEB_DIR = BASE / "web"
+HOST = os.getenv("SIMJ_HOST") or "0.0.0.0"
+PORT = int(os.getenv("SIMJ_PORT") or "8787")
 
-
-
-def clean_key(k):
-    return ''.join(str(k or '').strip().split())
+USERNAME_RE = re.compile(r"^[A-Za-z0-9_.@-]{3,64}$")
+PRIVATE_KEY_RE = re.compile(r"^[A-Za-z0-9_-]{24,80}$")
+SESSION_TTL = 60 * 60 * 24 * 7
+SCHEMA_VERSION = "6-e2ee-admin2fa"
+SERVICE_VERSION = "v6-e2ee-globe-admin2fa"
 
 
-def new_key():
-    return secrets.token_urlsafe(24)
+# ---------------------------------------------------------------------------
+# helpers
+# ---------------------------------------------------------------------------
+
+def clean(s: str) -> str:
+    return "".join(str(s or "").strip().split())
 
 
-def commit_and_checkpoint(conn):
-    conn.commit()
-    try:
-        conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
-    except Exception as e:
-        print("checkpoint error", e, flush=True)
+def b64url_key(nbytes: int = 32) -> str:
+    # urlsafe base64 without padding — matches App b64u(token_bytes)
+    import base64
+
+    return base64.urlsafe_b64encode(secrets.token_bytes(nbytes)).decode("ascii").rstrip("=")
 
 
-def ensure_tables(conn):
-    conn.execute("PRAGMA journal_mode=WAL")
-    conn.execute("PRAGMA wal_autocheckpoint=1")
-    conn.execute("""create table if not exists users(
-        api_key text primary key,
-        nickname text not null default '',
-        enabled integer not null default 1,
-        created_at integer not null,
-        updated_at integer not null
-    )""")
-    conn.execute("""create table if not exists user_settings(
-        api_key text primary key,
-        remind_days integer not null default 7,
-        remind_hour integer not null default 9,
-        remind_minute integer not null default 0,
-        tg_enabled integer not null default 0,
-        bot_token text not null default '',
-        chat_id text not null default '',
-        cloud_tg_enabled integer not null default 1,
-        smtp_enabled integer not null default 0,
-        smtp_host text not null default '',
-        smtp_port integer not null default 465,
-        smtp_user text not null default '',
-        smtp_pass text not null default '',
-        smtp_from text not null default '',
-        smtp_to text not null default '',
-        cloud_email_enabled integer not null default 1,
-        updated_at integer not null,
-        data_json text not null default '{}'
-    )""")
-    conn.execute("""create table if not exists user_records(
-        api_key text not null,
-        record_id text not null,
-        country_code text not null default '',
-        number text not null default '',
-        number_digits text not null default '',
-        operator text not null default '',
-        expire_date text not null default '',
-        updated_at integer not null,
-        data_json text not null default '{}',
-        primary key(api_key, record_id)
-    )""")
-    conn.execute("""create table if not exists sent_log(
-        api_key text not null,
-        record_id text not null,
-        channel text not null,
-        day text not null,
-        primary key(api_key, record_id, channel, day)
-    )""")
-    conn.execute("""create table if not exists sync_backups(
-        id integer primary key autoincrement,
-        api_key text not null,
-        payload text not null,
-        reason text not null default '',
-        records_count integer not null default 0,
-        created_at integer not null
-    )""")
-    conn.execute("""create table if not exists schema_meta(
-        key text primary key,
-        value text not null
-    )""")
-    conn.execute("insert or ignore into schema_meta(key,value) values(?,?)", ('version', SCHEMA_VERSION))
-    conn.commit()
+def password_hash(password: str, salt: str | None = None):
+    import base64
+
+    salt_bytes = base64.urlsafe_b64decode(salt + "=" * (-len(salt) % 4)) if salt else secrets.token_bytes(16)
+    digest = hashlib.pbkdf2_hmac("sha256", str(password or "").encode("utf-8"), salt_bytes, 210_000, dklen=32)
+    salt_out = base64.urlsafe_b64encode(salt_bytes).decode("ascii").rstrip("=")
+    hash_out = base64.urlsafe_b64encode(digest).decode("ascii").rstrip("=")
+    return salt_out, hash_out
 
 
-def migrate_legacy(conn):
-    def table_exists(name):
-        return bool(conn.execute("select 1 from sqlite_master where type='table' and name=?", (name,)).fetchone())
-
-    def has_column(table, col):
-        return any(r['name'] == col for r in conn.execute("pragma table_info('%s')" % table).fetchall())
-
-    def ensure_column(table, col, typedef):
-        if table_exists(table) and not has_column(table, col):
-            conn.execute("ALTER TABLE %s ADD COLUMN %s %s" % (table, col, typedef))
-
-    # Rename legacy raw-payload users table out of the way so new schema can be created.
-    if table_exists('users') and has_column('users', 'payload'):
-        conn.execute('DROP TABLE IF EXISTS users_legacy_tmp')
-        conn.execute('ALTER TABLE users RENAME TO users_legacy_tmp')
-    if table_exists('user_meta') and table_exists('user_meta_legacy'):
-        conn.execute('DROP TABLE IF EXISTS user_meta_legacy')
-    if table_exists('user_meta'):
-        conn.execute('ALTER TABLE user_meta RENAME TO user_meta_legacy')
-
-    # Preserve old backup table if it lacks new columns.
-    if table_exists('sync_backups') and (not has_column('sync_backups', 'reason') or not has_column('sync_backups', 'records_count')):
-        conn.execute('DROP TABLE IF EXISTS sync_backups_legacy_tmp')
-        conn.execute('ALTER TABLE sync_backups RENAME TO sync_backups_legacy_tmp')
-
-    ensure_tables(conn)
-    ensure_column('sync_backups', 'reason', "text not null default ''")
-    ensure_column('sync_backups', 'records_count', "integer not null default 0")
-
-    # Migrate payload-based users into structured tables.
-    src_users = None
-    if table_exists('users_legacy_tmp'):
-        src_users = 'users_legacy_tmp'
-    elif table_exists('users_legacy'):
-        src_users = 'users_legacy'
-    elif table_exists('users') and has_column('users', 'payload'):
-        src_users = 'users'
-    if src_users:
-        meta_map = {}
-        meta_src = 'user_meta_legacy' if table_exists('user_meta_legacy') else None
-        if meta_src:
-            for r in conn.execute('SELECT api_key, nickname, created_at, enabled FROM %s' % meta_src).fetchall():
-                meta_map[r['api_key']] = r
-        now = int(time.time())
-        for r in conn.execute('SELECT api_key, payload, updated_at FROM %s' % src_users).fetchall():
-            api = r['api_key']
-            payload_text = r['payload'] or '{}'
-            try:
-                payload = json.loads(payload_text)
-            except Exception:
-                payload = {}
-            updated_at = int(r['updated_at'] or now)
-            meta = meta_map.get(api)
-            nickname = (meta['nickname'] if meta else '') or ''
-            enabled = int(meta['enabled']) if meta else 1
-            created_at = int(meta['created_at']) if meta else updated_at
-            conn.execute('INSERT OR REPLACE INTO users(api_key, nickname, enabled, created_at, updated_at) VALUES(?,?,?,?,?)', (api, nickname[:50], 1 if enabled else 0, created_at, updated_at))
-            upsert_settings_from_payload(conn, api, payload.get('settings') or {})
-            replace_records(conn, api, payload.get('records') or [])
-            conn.execute('INSERT INTO sync_backups(api_key, payload, reason, records_count, created_at) VALUES(?,?,?,?,?)',
-                         (api, payload_text, 'migrate-v3', len(payload.get('records') or []), now))
-        conn.execute('DROP TABLE IF EXISTS %s' % src_users)
-
-    # Import old backup rows if they were preserved.
-    if table_exists('sync_backups_legacy_tmp'):
-        rows = conn.execute('SELECT * FROM sync_backups_legacy_tmp').fetchall()
-        now = int(time.time())
-        for r in rows:
-            api = r['api_key']
-            payload_text = r['payload'] if 'payload' in r else '{}'
-            created_at = int(r['backed_up_at']) if 'backed_up_at' in r else now
-            records_count = 0
-            if payload_text:
-                try:
-                    records_count = len((json.loads(payload_text) or {}).get('records') or [])
-                except Exception:
-                    records_count = 0
-            conn.execute('INSERT INTO sync_backups(api_key, payload, reason, records_count, created_at) VALUES(?,?,?,?,?)',
-                         (api, payload_text, 'legacy', records_count, created_at))
-        conn.execute('DROP TABLE IF EXISTS sync_backups_legacy_tmp')
-
-    if table_exists('user_meta_legacy'):
-        conn.execute('DROP TABLE IF EXISTS user_meta_legacy')
-    commit_and_checkpoint(conn)
+def verify_password(password: str, salt: str, expected: str) -> bool:
+    _, actual = password_hash(password, salt)
+    return hmac.compare_digest(actual, expected or "")
 
 
-def table_columns(conn, table):
-    try:
-        return [r['name'] for r in conn.execute("pragma table_info('%s')" % table).fetchall()]
-    except Exception:
-        return []
+def private_key_hash(private_key: str) -> str:
+    return hashlib.sha256(clean(private_key).encode("utf-8")).hexdigest()
 
 
-def ensure_runtime_migrations(conn):
-    cols = table_columns(conn, 'sent_log')
-    if cols:
-        if 'expire_date' not in cols:
-            conn.execute("ALTER TABLE sent_log ADD COLUMN expire_date text not null default ''")
-        if 'sent_at' not in cols:
-            conn.execute("ALTER TABLE sent_log ADD COLUMN sent_at integer not null default 0")
-        if 'status' not in cols:
-            conn.execute("ALTER TABLE sent_log ADD COLUMN status text not null default 'success'")
-        if 'message' not in cols:
-            conn.execute("ALTER TABLE sent_log ADD COLUMN message text not null default ''")
-    conn.execute("""create table if not exists reminder_runs(
-        id integer primary key autoincrement,
-        scope text not null default 'all',
-        api_key text not null default '',
-        checked_at integer not null,
-        stats_json text not null default '{}'
-    )""")
-    conn.commit()
+def private_key_tail(private_key: str) -> str:
+    k = clean(private_key)
+    return k[-6:] if len(k) >= 6 else k
+
+
+def _b32_decode(secret: str) -> bytes:
+    import base64
+
+    s = re.sub(r"[^A-Z2-7]", "", str(secret or "").upper())
+    if not s:
+        raise ValueError("empty totp secret")
+    pad = "=" * ((8 - len(s) % 8) % 8)
+    return base64.b32decode(s + pad, casefold=True)
+
+
+def totp_code(secret: str, for_time: int | None = None, step: int = 30, digits: int = 6) -> str:
+    """RFC 6238 TOTP (SHA-1), no external dependency."""
+    import struct
+
+    key = _b32_decode(secret)
+    counter = int((for_time if for_time is not None else time.time()) // step)
+    msg = struct.pack(">Q", counter)
+    digest = hmac.new(key, msg, hashlib.sha1).digest()
+    offset = digest[-1] & 0x0F
+    num = struct.unpack(">I", digest[offset : offset + 4])[0] & 0x7FFFFFFF
+    return str(num % (10**digits)).zfill(digits)
+
+
+def verify_totp(secret: str, code: str, window: int = 1) -> bool:
+    raw = re.sub(r"\s+", "", str(code or ""))
+    if not raw.isdigit() or not secret:
+        return False
+    now = int(time.time())
+    for w in range(-window, window + 1):
+        if hmac.compare_digest(totp_code(secret, now + w * 30), raw.zfill(6)[-6:]):
+            return True
+        # also accept without leading zeros normalization
+        if hmac.compare_digest(totp_code(secret, now + w * 30), raw):
+            return True
+    return False
+
+
+def new_totp_secret() -> str:
+    import base64
+
+    # 20 bytes → base32, standard authenticator length
+    return base64.b32encode(secrets.token_bytes(20)).decode("ascii").rstrip("=")
+
+
+def otpauth_uri(secret: str, username: str, issuer: str = "SIMJ Admin") -> str:
+    label = urllib.parse.quote(f"{issuer}:{username}")
+    q = urllib.parse.urlencode(
+        {
+            "secret": secret,
+            "issuer": issuer,
+            "algorithm": "SHA1",
+            "digits": "6",
+            "period": "30",
+        }
+    )
+    return f"otpauth://totp/{label}?{q}"
+
+
+# ---------------------------------------------------------------------------
+# database
+# ---------------------------------------------------------------------------
 
 def db():
-    conn = sqlite3.connect(DB)
+    conn = sqlite3.connect(DB, timeout=30)
     conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA foreign_keys=ON")
     return conn
 
 
-def ensure_user(api_key, nickname=''):
-    conn = db()
-    now = int(time.time())
-    conn.execute('INSERT OR IGNORE INTO users(api_key, nickname, enabled, created_at, updated_at) VALUES(?,?,?,?,?)', (api_key, (nickname or '')[:50], 1, now, now))
-    commit_and_checkpoint(conn)
-    conn.close()
-
-
-def user_enabled(api_key):
-    api_key = clean_key(api_key)
-    if not KEY_RE.match(api_key):
-        return False
-    conn = db()
-    row = conn.execute('SELECT enabled FROM users WHERE api_key=?', (api_key,)).fetchone()
-    conn.close()
-    return bool(row and int(row['enabled']) == 1)
-
-
-def upsert_settings_from_payload(conn, api_key, settings):
-    if settings is None:
-        settings = {}
-    now = int(time.time())
-    remind_days = int(settings.get('remindDays') or settings.get('remind天') or 7)
-    remind_hour = int(settings.get('remindHour') or 9)
-    remind_minute = int(settings.get('remindMinute') or 0)
-    tg_enabled = 1 if settings.get('tgEnabled') else 0
-    bot_token = settings.get('botToken', '')
-    chat_id = settings.get('chatId', '')
-    cloud_tg_enabled = 1 if settings.get('cloudTelegramEnabled', True) else 0
-    smtp_enabled = 1 if settings.get('smtpEnabled') else 0
-    smtp_host = settings.get('smtpHost', '')
-    smtp_port = int(settings.get('smtpPort') or 465)
-    smtp_user = settings.get('smtpUser', '')
-    smtp_pass = settings.get('smtpPass', '')
-    smtp_from = settings.get('smtpFrom', '')
-    smtp_to = settings.get('smtpTo', '')
-    cloud_email_enabled = 1 if settings.get('cloudEmailEnabled', True) else 0
-    conn.execute('''INSERT OR REPLACE INTO user_settings(
-        api_key, remind_days, remind_hour, remind_minute, tg_enabled, bot_token, chat_id, cloud_tg_enabled, smtp_enabled, smtp_host, smtp_port, smtp_user, smtp_pass, smtp_from, smtp_to, cloud_email_enabled, updated_at, data_json
-    ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)''',
-    (api_key, remind_days, remind_hour, remind_minute, tg_enabled, bot_token, chat_id, cloud_tg_enabled, smtp_enabled, smtp_host, smtp_port, smtp_user, smtp_pass, smtp_from, smtp_to, cloud_email_enabled, now, json.dumps(settings, ensure_ascii=False)))
-
-
-def replace_records(conn, api_key, records):
-    conn.execute('DELETE FROM user_records WHERE api_key=?', (api_key,))
-    now = int(time.time())
-    for r in records or []:
-        rec_id = r.get('id') or str(uuid.uuid4())
-        cc = r.get('countryCode', '')
-        num = r.get('number', '')
-        num_digits = ''.join(ch for ch in str(num) if ch.isdigit())
-        operator = r.get('operator', '')
-        expire = str(r.get('expireDate', '') or '')
-        conn.execute('INSERT OR REPLACE INTO user_records(api_key, record_id, country_code, number, number_digits, operator, expire_date, updated_at, data_json) VALUES(?,?,?,?,?,?,?,?,?)',
-                     (api_key, rec_id, cc, num, num_digits, operator, expire, now, json.dumps(r, ensure_ascii=False)))
-
-
-def load_settings_dict(conn, api_key):
-    row = conn.execute('SELECT * FROM user_settings WHERE api_key=?', (api_key,)).fetchone()
-    if not row:
-        return {}
+def commit(conn):
+    conn.commit()
     try:
-        data = json.loads(row['data_json']) if row['data_json'] else {}
+        conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
     except Exception:
-        data = {}
-    data.setdefault('remindDays', row['remind_days'])
-    data.setdefault('remind天', row['remind_days'])
-    data.setdefault('remindHour', row['remind_hour'])
-    data.setdefault('remindMinute', row['remind_minute'])
-    data.setdefault('tgEnabled', bool(row['tg_enabled']))
-    data.setdefault('botToken', row['bot_token'])
-    data.setdefault('chatId', row['chat_id'])
-    data.setdefault('cloudTelegramEnabled', bool(row['cloud_tg_enabled']))
-    data.setdefault('smtpEnabled', bool(row['smtp_enabled']))
-    data.setdefault('smtpHost', row['smtp_host'])
-    data.setdefault('smtpPort', row['smtp_port'])
-    data.setdefault('smtpUser', row['smtp_user'])
-    data.setdefault('smtpPass', row['smtp_pass'])
-    data.setdefault('smtpFrom', row['smtp_from'])
-    data.setdefault('smtpTo', row['smtp_to'])
-    data.setdefault('cloudEmailEnabled', bool(row['cloud_email_enabled']))
-    return data
+        pass
 
 
-def load_records_list(conn, api_key):
-    out = []
-    for row in conn.execute('SELECT * FROM user_records WHERE api_key=?', (api_key,)).fetchall():
-        try:
-            rec = json.loads(row['data_json']) if row['data_json'] else {}
-        except Exception:
-            rec = {}
-        if not rec.get('id'):
-            rec['id'] = row['record_id']
-        out.append(rec)
-    return out
+def init_db():
+    BASE.mkdir(parents=True, exist_ok=True)
+    WEB_DIR.mkdir(parents=True, exist_ok=True)
+    conn = db()
+    conn.executescript(
+        """
+        CREATE TABLE IF NOT EXISTS accounts (
+            id            TEXT PRIMARY KEY,
+            username      TEXT NOT NULL UNIQUE,
+            role          TEXT NOT NULL DEFAULT 'user',
+            password_salt TEXT NOT NULL,
+            password_hash TEXT NOT NULL,
+            private_key_hash TEXT NOT NULL,
+            private_key_tail TEXT NOT NULL DEFAULT '',
+            enabled       INTEGER NOT NULL DEFAULT 1,
+            created_at    INTEGER NOT NULL,
+            updated_at    INTEGER NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS sessions (
+            token      TEXT PRIMARY KEY,
+            account_id TEXT NOT NULL,
+            username   TEXT NOT NULL,
+            role       TEXT NOT NULL,
+            created_at INTEGER NOT NULL,
+            expires_at INTEGER NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS encrypted_sync (
+            account_id    TEXT PRIMARY KEY,
+            envelope      TEXT NOT NULL,
+            coverage_json TEXT NOT NULL DEFAULT '{}',
+            records_count INTEGER NOT NULL DEFAULT 0,
+            updated_at    INTEGER NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS sync_backups (
+            id            INTEGER PRIMARY KEY AUTOINCREMENT,
+            account_id    TEXT NOT NULL,
+            envelope      TEXT NOT NULL,
+            coverage_json TEXT NOT NULL DEFAULT '{}',
+            records_count INTEGER NOT NULL DEFAULT 0,
+            reason        TEXT NOT NULL DEFAULT '',
+            created_at    INTEGER NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS server_settings (
+            key        TEXT PRIMARY KEY,
+            value      TEXT NOT NULL,
+            updated_at INTEGER NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS schema_meta (
+            key   TEXT PRIMARY KEY,
+            value TEXT NOT NULL
+        );
+        """
+    )
+    now = int(time.time())
+    conn.execute(
+        "INSERT OR IGNORE INTO server_settings(key,value,updated_at) VALUES(?,?,?)",
+        ("allow_registration", "1", now),
+    )
+    # Admin second factors: OFF by default — admin must enable in dashboard
+    for k, v in (
+        ("admin_2fa_enabled", "0"),
+        ("admin_2fa_secret", ""),
+        ("admin_2fa_pending_secret", ""),
+        ("admin_keepass_enabled", "0"),
+        ("admin_keepass_salt", ""),
+        ("admin_keepass_hash", ""),
+    ):
+        conn.execute(
+            "INSERT OR IGNORE INTO server_settings(key,value,updated_at) VALUES(?,?,?)",
+            (k, v, now),
+        )
+    # Legacy extra admin factor was removed; clear old state on startup.
+    for k, v in (
+        ("admin_keepass_enabled", "0"),
+        ("admin_keepass_salt", ""),
+        ("admin_keepass_hash", ""),
+    ):
+        conn.execute(
+            "INSERT OR REPLACE INTO server_settings(key,value,updated_at) VALUES(?,?,?)",
+            (k, v, now),
+        )
+    conn.execute(
+        "INSERT OR REPLACE INTO schema_meta(key,value) VALUES(?,?)",
+        ("version", SCHEMA_VERSION),
+    )
+    commit(conn)
+    conn.close()
 
 
-def assemble_payload(conn, api_key):
+def get_setting(conn, key: str, default: str = "") -> str:
+    row = conn.execute("SELECT value FROM server_settings WHERE key=?", (key,)).fetchone()
+    return row["value"] if row else default
+
+
+def set_setting(conn, key: str, value: str):
+    conn.execute(
+        "INSERT OR REPLACE INTO server_settings(key,value,updated_at) VALUES(?,?,?)",
+        (key, str(value), int(time.time())),
+    )
+
+
+def allow_registration(conn) -> bool:
+    # first account always allowed
+    n = int(conn.execute("SELECT count(*) c FROM accounts").fetchone()["c"] or 0)
+    if n <= 0:
+        return True
+    return get_setting(conn, "allow_registration", "1") != "0"
+
+
+def admin_security_public(conn) -> dict:
+    """Safe flags for login UI (no secrets)."""
     return {
-        'settings': load_settings_dict(conn, api_key),
-        'records': load_records_list(conn, api_key)
+        "admin2faEnabled": get_setting(conn, "admin_2fa_enabled", "0") == "1"
+        and bool(get_setting(conn, "admin_2fa_secret", "")),
+        "adminKeepassEnabled": False,
     }
 
 
-def fetch_key_counts(conn, api_key):
-    settings = load_settings_dict(conn, api_key)
-    records = load_records_list(conn, api_key)
-    return settings, records
+def admin_security_detail(conn) -> dict:
+    """Admin dashboard view — still no raw secrets except pending setup URI."""
+    flags = admin_security_public(conn)
+    pending = get_setting(conn, "admin_2fa_pending_secret", "")
+    return {
+        **flags,
+        "admin2faConfigured": bool(get_setting(conn, "admin_2fa_secret", "")),
+        "adminKeepassConfigured": False,
+        "admin2faPending": bool(pending),
+    }
 
 
-def purge_old_backups(conn, api_key, keep=200):
-    rows = conn.execute('SELECT id FROM sync_backups WHERE api_key=? ORDER BY created_at DESC, id DESC', (api_key,)).fetchall()
+def public_settings(conn=None) -> dict:
+    own = conn is None
+    if own:
+        conn = db()
+    try:
+        n = int(conn.execute("SELECT count(*) c FROM accounts").fetchone()["c"] or 0)
+        return {
+            "allowRegistration": allow_registration(conn),
+            "users": n,
+            "service": "simjiang-reminder",
+            "version": SERVICE_VERSION,
+            "e2ee": True,
+            **admin_security_public(conn),
+        }
+    finally:
+        if own:
+            conn.close()
+
+
+# ---------------------------------------------------------------------------
+# accounts / sessions
+# ---------------------------------------------------------------------------
+
+def register_account(username: str, password: str):
+    username = str(username or "").strip()
+    password = str(password or "")
+    if not USERNAME_RE.match(username):
+        return False, "用户名需要 3-64 位，可用字母、数字、点、下划线、@ 或 -", None
+    if len(password) < 8:
+        return False, "密码至少 8 位", None
+
+    conn = db()
+    try:
+        if not allow_registration(conn):
+            return False, "服务器已关闭新用户注册", None
+        if conn.execute("SELECT 1 FROM accounts WHERE username=?", (username,)).fetchone():
+            return False, "用户名已存在", None
+
+        existing = int(conn.execute("SELECT count(*) c FROM accounts").fetchone()["c"] or 0)
+        role = "owner" if existing <= 0 else "user"
+        account_id = str(uuid.uuid4())
+        private_key = b64url_key(32)
+        salt, pwd = password_hash(password)
+        now = int(time.time())
+        conn.execute(
+            """INSERT INTO accounts(
+                id, username, role, password_salt, password_hash,
+                private_key_hash, private_key_tail, enabled, created_at, updated_at
+            ) VALUES(?,?,?,?,?,?,?,?,?,?)""",
+            (
+                account_id,
+                username,
+                role,
+                salt,
+                pwd,
+                private_key_hash(private_key),
+                private_key_tail(private_key),
+                1,
+                now,
+                now,
+            ),
+        )
+        commit(conn)
+        token = create_session(conn, account_id, username, role)
+        return True, "注册成功", {
+            "token": token,
+            "privateKey": private_key,
+            "username": username,
+            "role": role,
+            "accountId": account_id,
+            "privateKeyTail": private_key_tail(private_key),
+        }
+    finally:
+        conn.close()
+
+
+def login_account(username: str, password: str):
+    username = str(username or "").strip()
+    conn = db()
+    try:
+        row = conn.execute(
+            "SELECT id, username, role, password_salt, password_hash, enabled, private_key_tail FROM accounts WHERE username=?",
+            (username,),
+        ).fetchone()
+        if not row or not int(row["enabled"]):
+            return False, "用户名或密码错误", None
+        if not verify_password(password, row["password_salt"], row["password_hash"]):
+            return False, "用户名或密码错误", None
+        token = create_session(conn, row["id"], row["username"], row["role"])
+        return True, "登录成功", {
+            "token": token,
+            "username": row["username"],
+            "role": row["role"],
+            "accountId": row["id"],
+            "privateKeyTail": row["private_key_tail"] or "",
+            # private key is NEVER returned on login
+        }
+    finally:
+        conn.close()
+
+
+def login_admin(username: str, password: str, totp: str = "", keepass: str = ""):
+    """
+    Admin portal login.
+    Password is always required. 2FA is enforced only when enabled.
+    The legacy extra-factor argument is ignored for compatibility.
+    """
+    username = str(username or "").strip()
+    conn = db()
+    try:
+        row = conn.execute(
+            "SELECT id, username, role, password_salt, password_hash, enabled FROM accounts WHERE username=?",
+            (username,),
+        ).fetchone()
+        if not row or not int(row["enabled"]):
+            return False, "用户名或密码错误", None
+        if not verify_password(password, row["password_salt"], row["password_hash"]):
+            return False, "用户名或密码错误", None
+        if not is_admin(row["role"]):
+            return False, "该账户不是管理员", None
+
+        sec = admin_security_public(conn)
+        need_2fa = sec["admin2faEnabled"]
+
+        if need_2fa:
+            secret = get_setting(conn, "admin_2fa_secret", "")
+            if not secret:
+                return False, "管理员 2FA 已开启但未配置密钥，请先在后台完成设置", None
+            if not str(totp or "").strip():
+                return False, "请输入 2FA 验证码", {
+                    "need2fa": True,
+                    "needKeepass": False,
+                    "step": "second_factor",
+                }
+            if not verify_totp(secret, totp):
+                return False, "2FA 验证码错误", {
+                    "need2fa": True,
+                    "needKeepass": False,
+                    "step": "second_factor",
+                }
+
+        token = create_session(conn, row["id"], row["username"], row["role"])
+        return True, "管理员登录成功", {
+            "token": token,
+            "username": row["username"],
+            "role": row["role"],
+            "accountId": row["id"],
+            "need2fa": False,
+            "needKeepass": False,
+        }
+    finally:
+        conn.close()
+
+
+def admin_set_password(account_id: str, old_password: str, new_password: str):
+    new_password = str(new_password or "")
+    if len(new_password) < 8:
+        return False, "新密码至少 8 位"
+    conn = db()
+    try:
+        row = conn.execute(
+            "SELECT password_salt, password_hash, role FROM accounts WHERE id=?",
+            (account_id,),
+        ).fetchone()
+        if not row or not is_admin(row["role"]):
+            return False, "需要管理员权限"
+        if not verify_password(old_password, row["password_salt"], row["password_hash"]):
+            return False, "当前密码错误"
+        salt, pwd = password_hash(new_password)
+        conn.execute(
+            "UPDATE accounts SET password_salt=?, password_hash=?, updated_at=? WHERE id=?",
+            (salt, pwd, int(time.time()), account_id),
+        )
+        commit(conn)
+        return True, "管理员密码已更新"
+    finally:
+        conn.close()
+
+
+def active_admin_count(conn, exclude_id: str = "") -> int:
+    row = conn.execute(
+        """SELECT count(*) c FROM accounts
+           WHERE role IN ('owner','admin') AND enabled=1 AND id<>?""",
+        (exclude_id or "",),
+    ).fetchone()
+    return int((row["c"] if row else 0) or 0)
+
+
+def admin_manage_account(admin_id: str, payload: dict):
+    action = str(payload.get("action") or "").strip().lower()
+    account_id = str(payload.get("accountId") or payload.get("id") or "").strip()
+    if not account_id:
+        return 400, {"ok": False, "message": "缺少账户 ID"}
+
+    conn = db()
+    try:
+        row = conn.execute(
+            "SELECT id, username, role, enabled FROM accounts WHERE id=?",
+            (account_id,),
+        ).fetchone()
+        if not row:
+            return 404, {"ok": False, "message": "账户不存在"}
+
+        now = int(time.time())
+        if action in ("rename", "set_username", "username"):
+            username = str(payload.get("username") or payload.get("newUsername") or "").strip()
+            if not USERNAME_RE.match(username):
+                return 400, {"ok": False, "message": "用户名需为 3-64 位，可用字母、数字、点、下划线、@ 或 -"}
+            exists = conn.execute(
+                "SELECT 1 FROM accounts WHERE username=? AND id<>?",
+                (username, account_id),
+            ).fetchone()
+            if exists:
+                return 400, {"ok": False, "message": "用户名已存在"}
+            conn.execute(
+                "UPDATE accounts SET username=?, updated_at=? WHERE id=?",
+                (username, now, account_id),
+            )
+            conn.execute("UPDATE sessions SET username=? WHERE account_id=?", (username, account_id))
+            commit(conn)
+            return 200, {
+                "ok": True,
+                "message": "用户名已修改；服务端不会解密或重写该账户的加密包",
+                "account": {"id": account_id, "username": username},
+            }
+
+        if action in ("set_enabled", "enable", "disable"):
+            if action == "enable":
+                enabled = True
+            elif action == "disable":
+                enabled = False
+            else:
+                raw = payload.get("enabled")
+                enabled = str(raw).strip().lower() in ("1", "true", "yes", "on") if isinstance(raw, str) else bool(raw)
+            if account_id == admin_id and not enabled:
+                return 400, {"ok": False, "message": "不能停用当前登录的管理员账户"}
+            if not enabled and is_admin(row["role"]) and active_admin_count(conn, account_id) <= 0:
+                return 400, {"ok": False, "message": "不能停用最后一个可用管理员账户"}
+            conn.execute(
+                "UPDATE accounts SET enabled=?, updated_at=? WHERE id=?",
+                (1 if enabled else 0, now, account_id),
+            )
+            if not enabled:
+                conn.execute("DELETE FROM sessions WHERE account_id=?", (account_id,))
+            commit(conn)
+            return 200, {
+                "ok": True,
+                "message": "账户已启用" if enabled else "账户已停用并踢出登录",
+                "account": {"id": account_id, "enabled": enabled},
+            }
+
+        if action in ("delete", "remove"):
+            if account_id == admin_id:
+                return 400, {"ok": False, "message": "不能删除当前登录的管理员账户"}
+            if is_admin(row["role"]) and active_admin_count(conn, account_id) <= 0:
+                return 400, {"ok": False, "message": "不能删除最后一个可用管理员账户"}
+            username = row["username"]
+            conn.execute("DELETE FROM sessions WHERE account_id=?", (account_id,))
+            conn.execute("DELETE FROM sync_backups WHERE account_id=?", (account_id,))
+            conn.execute("DELETE FROM encrypted_sync WHERE account_id=?", (account_id,))
+            conn.execute("DELETE FROM accounts WHERE id=?", (account_id,))
+            commit(conn)
+            return 200, {"ok": True, "message": f"账户 {username} 已删除，云端加密包和备份已清理"}
+
+        return 400, {"ok": False, "message": "未知账户操作"}
+    finally:
+        conn.close()
+
+
+def reset_password(username: str, private_key: str, new_password: str):
+    username = str(username or "").strip()
+    private_key = clean(private_key)
+    new_password = str(new_password or "")
+    if not USERNAME_RE.match(username):
+        return False, "用户名无效"
+    if not PRIVATE_KEY_RE.match(private_key):
+        return False, "私钥格式不正确"
+    if len(new_password) < 8:
+        return False, "新密码至少 8 位"
+
+    conn = db()
+    try:
+        row = conn.execute(
+            "SELECT id, private_key_hash, enabled FROM accounts WHERE username=?",
+            (username,),
+        ).fetchone()
+        if not row or not int(row["enabled"]):
+            return False, "用户不存在或已禁用"
+        if not hmac.compare_digest(row["private_key_hash"], private_key_hash(private_key)):
+            return False, "私钥不正确，无法重置密码"
+        salt, pwd = password_hash(new_password)
+        now = int(time.time())
+        conn.execute(
+            "UPDATE accounts SET password_salt=?, password_hash=?, updated_at=? WHERE id=?",
+            (salt, pwd, now, row["id"]),
+        )
+        # invalidate all sessions
+        conn.execute("DELETE FROM sessions WHERE account_id=?", (row["id"],))
+        commit(conn)
+        return True, "密码已重置，请用新密码登录"
+    finally:
+        conn.close()
+
+
+def create_session(conn, account_id: str, username: str, role: str) -> str:
+    token = secrets.token_urlsafe(32)
+    now = int(time.time())
+    conn.execute("DELETE FROM sessions WHERE expires_at<?", (now,))
+    conn.execute(
+        "INSERT INTO sessions(token, account_id, username, role, created_at, expires_at) VALUES(?,?,?,?,?,?)",
+        (token, account_id, username, role, now, now + SESSION_TTL),
+    )
+    commit(conn)
+    return token
+
+
+def parse_cookies(headers) -> dict:
+    out = {}
+    raw = headers.get("Cookie", "") or ""
+    for part in raw.split(";"):
+        if "=" in part:
+            k, v = part.split("=", 1)
+            out[k.strip()] = urllib.parse.unquote(v.strip())
+    return out
+
+
+def session_from_headers(headers):
+    token = parse_cookies(headers).get("simj_session", "")
+    auth = headers.get("Authorization", "") or ""
+    if not token and auth.lower().startswith("bearer "):
+        token = auth.split(" ", 1)[1].strip()
+    # also accept X-Session-Token
+    if not token:
+        token = headers.get("X-Session-Token", "") or ""
+    if not token:
+        return None
+    now = int(time.time())
+    conn = db()
+    try:
+        row = conn.execute(
+            """SELECT s.token, s.account_id, s.username, s.role, s.expires_at, a.enabled
+               FROM sessions s JOIN accounts a ON a.id=s.account_id
+               WHERE s.token=?""",
+            (token,),
+        ).fetchone()
+        if not row or int(row["expires_at"]) < now or not int(row["enabled"]):
+            if row:
+                conn.execute("DELETE FROM sessions WHERE token=?", (token,))
+                commit(conn)
+            return None
+        return {
+            "token": row["token"],
+            "account_id": row["account_id"],
+            "username": row["username"],
+            "role": row["role"] or "user",
+        }
+    finally:
+        conn.close()
+
+
+def is_admin(role: str) -> bool:
+    return role in ("owner", "admin")
+
+
+def load_coverage(conn, account_id: str) -> dict:
+    row = conn.execute(
+        "SELECT coverage_json, records_count, updated_at FROM encrypted_sync WHERE account_id=?",
+        (account_id,),
+    ).fetchone()
+    if not row:
+        return {"countries": [], "countryCount": 0, "records": 0, "esims": 0, "updatedAt": 0}
+    try:
+        cov = json.loads(row["coverage_json"] or "{}")
+    except Exception:
+        cov = {}
+    if not isinstance(cov, dict):
+        cov = {}
+    cov.setdefault("countries", [])
+    cov.setdefault("countryCount", len(cov.get("countries") or []))
+    cov.setdefault("records", int(row["records_count"] or 0))
+    cov.setdefault("esims", int(cov.get("esims") or 0))
+    cov["updatedAt"] = int(row["updated_at"] or 0)
+    return cov
+
+
+def normalize_coverage(raw) -> dict:
+    if not isinstance(raw, dict):
+        return {"countries": [], "countryCount": 0, "records": 0, "esims": 0}
+    countries = []
+    for item in raw.get("countries") or []:
+        if not isinstance(item, dict):
+            continue
+        iso = str(item.get("iso") or item.get("iso2") or item.get("ISO_A2") or "").strip().upper()
+        if len(iso) != 2:
+            continue
+        esims = int(item.get("esims") or 0)
+        records = int(item.get("records") or 0)
+        # Account-private card samples for logged-in Web UI (full number OK — only same session can fetch)
+        samples_out = []
+        for s in (item.get("samples") or [])[:120]:
+            if not isinstance(s, dict):
+                continue
+            number = str(s.get("number") or s.get("num") or "").strip()[:40]
+            digits = re.sub(r"\D", "", number)
+            last4 = re.sub(r"\D", "", str(s.get("last4") or ""))[-4:] or digits[-4:]
+            if not last4 and not number:
+                continue
+            samples_out.append(
+                {
+                    "id": str(s.get("id") or "")[:64],
+                    "number": number,
+                    "last4": last4 or "????",
+                    "mask": str(s.get("mask") or number or ("•••• " + (last4 or "????")))[:48],
+                    "op": str(s.get("op") or "")[:40],
+                    "esim": bool(s.get("esim")),
+                    "code": str(s.get("code") or "")[:12],
+                    "name": str(s.get("name") or "")[:40],
+                    "flag": str(s.get("flag") or "")[:8],
+                    "expire": str(s.get("expire") or s.get("expireDate") or "")[:32],
+                    "balance": str(s.get("balance") or "")[:32],
+                    "cardType": str(s.get("cardType") or "")[:24],
+                    "signal": str(s.get("signal") or "")[:24],
+                    "note": str(s.get("note") or "")[:80],
+                }
+            )
+        countries.append(
+            {
+                "iso": iso,
+                "name": str(item.get("name") or iso)[:80],
+                "records": records,
+                "esims": esims,
+                "samples": samples_out,
+            }
+        )
+    # only keep countries that have at least one card; highlight prefers esims>0
+    countries.sort(key=lambda x: (-x["esims"], -x["records"], x["iso"]))
+    return {
+        "countries": countries,
+        "countryCount": len(countries),
+        "records": sum(c["records"] for c in countries) or int(raw.get("records") or 0),
+        "esims": sum(c["esims"] for c in countries) or int(raw.get("esims") or 0),
+        "updatedAt": int(raw.get("updatedAt") or time.time()),
+    }
+
+
+def records_from_coverage(coverage: dict) -> list[dict]:
+    """Build legacy app records from same-account coverage card samples."""
+    if not isinstance(coverage, dict):
+        return []
+    today = time.strftime("%Y-%m-%d")
+    out: list[dict] = []
+    for country in coverage.get("countries") or []:
+        if not isinstance(country, dict):
+            continue
+        country_name = str(country.get("name") or "")[:80]
+        for sample in (country.get("samples") or [])[:120]:
+            if not isinstance(sample, dict):
+                continue
+            number = str(sample.get("number") or sample.get("num") or "").strip()[:40]
+            if not number:
+                continue
+            is_esim = bool(sample.get("esim"))
+            out.append(
+                {
+                    "id": str(sample.get("id") or uuid.uuid4())[:64],
+                    "countryCode": str(sample.get("code") or "")[:12] or "+",
+                    "countryName": str(sample.get("name") or country_name)[:40],
+                    "flag": str(sample.get("flag") or "")[:8],
+                    "number": number,
+                    "operator": str(sample.get("op") or sample.get("operator") or "")[:40],
+                    "expireDate": str(sample.get("expire") or sample.get("expireDate") or "")[:32],
+                    "note": str(sample.get("note") or "")[:80],
+                    "balance": str(sample.get("balance") or "")[:32],
+                    "startDate": str(sample.get("startDate") or today)[:32],
+                    "createdAt": str(sample.get("createdAt") or today)[:32],
+                    "signalStatus": str(sample.get("signal") or "在线")[:24],
+                    "cardType": str(sample.get("cardType") or ("esim" if is_esim else "prepaid"))[:24],
+                }
+            )
+    return out
+
+
+def purge_backups(conn, account_id: str, keep: int = 50):
+    rows = conn.execute(
+        "SELECT id FROM sync_backups WHERE account_id=? ORDER BY created_at DESC, id DESC",
+        (account_id,),
+    ).fetchall()
     if len(rows) <= keep:
         return
-    ids = [r['id'] for r in rows[keep:]]
-    conn.execute('DELETE FROM sync_backups WHERE api_key=? AND id IN (%s)' % ','.join(['?'] * len(ids)), [api_key] + ids)
+    ids = [r["id"] for r in rows[keep:]]
+    conn.execute(
+        "DELETE FROM sync_backups WHERE account_id=? AND id IN (%s)" % ",".join("?" * len(ids)),
+        [account_id] + ids,
+    )
 
 
-def insert_backup_from_current(conn, api_key, reason, prev_record_count=None, prev_settings_signature=None):
-    settings, records = fetch_key_counts(conn, api_key)
-    new_record_count = len(records)
-    new_settings_signature = json.dumps(settings, sort_keys=True, ensure_ascii=False)
-    if reason == 'merge' and prev_record_count is not None and prev_settings_signature is not None:
-        if new_record_count == prev_record_count and new_settings_signature == prev_settings_signature:
-            return
-    payload = {'settings': settings, 'records': records}
-    conn.execute('INSERT INTO sync_backups(api_key, payload, reason, records_count, created_at) VALUES(?,?,?,?,?)',
-                 (api_key, json.dumps(payload, ensure_ascii=False), reason, new_record_count, int(time.time())))
-    purge_old_backups(conn, api_key)
-
-
-def merge_records(conn, api_key, incoming_records):
-    cur_rows = conn.execute('SELECT record_id, country_code, number, data_json FROM user_records WHERE api_key=?', (api_key,)).fetchall()
-    merged = {}
-    num_index = {}
-
-    def rec_fresh(rec):
-        vals = [rec.get('activatedAt'), rec.get('createdAt'), rec.get('expireDate')]
-        vals = [v for v in vals if v]
-        return max(vals) if vals else ''
-
-    for row in cur_rows:
-        try:
-            rec = json.loads(row['data_json']) if row['data_json'] else {}
-        except Exception:
-            rec = {}
-        if not rec.get('id'):
-            rec['id'] = row['record_id']
-        merged[row['record_id']] = rec
-        nd = ''.join(ch for ch in str(rec.get('number', '')) if ch.isdigit())
-        if nd:
-            num_index[(row['country_code'].strip(), nd)] = row['record_id']
-    for rec_in in incoming_records or []:
-        rid = rec_in.get('id') or str(uuid.uuid4())
-        rec_in['id'] = rid
-        nd = ''.join(ch for ch in str(rec_in.get('number', '')) if ch.isdigit())
-        cc = rec_in.get('countryCode', '')
-        key_primary = rid
-        key_num = (cc, nd) if nd else None
-        existing_key = None
-        if key_primary in merged:
-            existing_key = key_primary
-        elif key_num and key_num in num_index:
-            existing_key = num_index[key_num]
-        if existing_key:
-            existing = merged[existing_key]
-            chosen = rec_in if rec_fresh(rec_in) >= rec_fresh(existing) else existing
-            final_id = chosen.get('id') or existing_key
-            chosen['id'] = final_id
-            merged[final_id] = chosen
-            nd_ch = ''.join(ch for ch in str(chosen.get('number', '')) if ch.isdigit())
-            if nd_ch:
-                num_index[(chosen.get('countryCode', ''), nd_ch)] = final_id
-        else:
-            merged[rid] = rec_in
-            if key_num:
-                num_index[key_num] = rid
-    return list(merged.values())
-
-
-def mask_number(n):
-    ds = ''.join(ch for ch in str(n) if ch.isdigit())
-    if len(ds) <= 4:
-        return ds or str(n)
-    return ds[:3] + '****' + ds[-4:]
-
-
-def days_left(exp):
-    try:
-        d = date.fromisoformat(str(exp)[:10])
-        return (d - date.today()).days
-    except Exception:
-        return None
-
-
-def send_tg(token, chat_id, text):
-    if not token or not chat_id:
-        return False, 'Telegram 未配置'
-    try:
-        url = 'https://api.telegram.org/bot%s/sendMessage' % token
-        data = urllib.parse.urlencode({'chat_id': chat_id, 'text': text}).encode()
-        with urllib.request.urlopen(url, data=data, timeout=15) as r:
-            body = r.read().decode('utf-8', 'ignore')
-        return True, body[:160]
-    except urllib.error.HTTPError as e:
-        err_body = ''
-        try:
-            err_body = e.read().decode('utf-8', 'ignore')[:200]
-        except Exception:
-            pass
-        return False, 'Telegram HTTP %d: %s' % (e.code, err_body or e.reason)
-    except Exception as e:
-        return False, 'Telegram 发送失败: %s: %s' % (type(e).__name__, str(e))
-
-
-def send_mail(cfg, subject, body):
-    host = cfg.get('smtpHost', '')
-    port = int(cfg.get('smtpPort') or 465)
-    user = cfg.get('smtpUser', '')
-    pwd = cfg.get('smtpPass', '')
-    to = cfg.get('smtpTo', '')
-    sender = cfg.get('smtpFrom') or user
-    if not (host and user and pwd and to):
-        return False, 'SMTP 未配置完整'
-    msg = MIMEText(body, 'plain', 'utf-8')
-    msg['Subject'] = Header(subject, 'utf-8')
-    msg['From'] = formataddr(('simJ', sender))
-    msg['To'] = to
-    try:
-        ctx = ssl.create_default_context()
-        with smtplib.SMTP_SSL(host, port, context=ctx, timeout=25) as s:
-            s.login(user, pwd)
-            s.sendmail(sender, [to], msg.as_string())
-        return True, 'OK'
-    except Exception as e:
-        return False, '邮件发送失败: %s: %s' % (type(e).__name__, str(e))
-
-
-def reminder_text(r, left):
-    op = r.get('operator') or r.get('countryName') or 'SIM'
-    num = mask_number(r.get('number', ''))
-    exp = r.get('expireDate', '')
-    return "⏰ simJ 到期提醒\n%s %s %s %s\n到期日期：%s\n剩余天数：%s 天" % (r.get('flag', ''), op, r.get('countryCode', ''), num, exp, left)
-
-
-def already_sent(conn, api, rid, channel, day, expire_date):
-    return conn.execute('select 1 from sent_log where api_key=? and record_id=? and channel=? and day=? and (expire_date=? or expire_date=?)', (api, rid, channel, day, expire_date, '')).fetchone() is not None
-
-
-def write_sent_log(conn, api, rid, channel, day, expire_date, ok, message):
-    status = 'success' if ok else 'failed'
-    conn.execute('insert or ignore into sent_log(api_key,record_id,channel,day,expire_date,sent_at,status,message) values(?,?,?,?,?,?,?,?)',
-                 (api, rid, channel, day, expire_date, int(time.time()), status, str(message or '')[:500]))
-
-
-def check_once(only_key=None, force=False, source='manual'):
-    conn = db()
-    ensure_runtime_migrations(conn)
-    today = date.today().isoformat()
-    if only_key:
-        rows = conn.execute('SELECT api_key FROM users WHERE api_key=? AND enabled=1', (clean_key(only_key),)).fetchall()
-    else:
-        rows = conn.execute('SELECT api_key FROM users WHERE enabled=1').fetchall()
-    stats = {'users': len(rows), 'records': 0, 'due': 0, 'tg': 0, 'mail': 0, 'duplicate': 0, 'disabled': 0, 'configMissing': 0, 'failed': 0}
-    for row in rows:
-        api = row['api_key']
-        settings = load_settings_dict(conn, api)
-        records = load_records_list(conn, api)
-        stats['records'] += len(records)
-        if not bool(settings.get('cloudEnabled', False)):
-            stats['disabled'] += 1
-            continue
-        remind = int(settings.get('remindDays') or settings.get('remind天') or 7)
-        cloud_tg = bool(settings.get('cloudTelegramEnabled', True))
-        cloud_mail = bool(settings.get('cloudEmailEnabled', True))
-        for r in records:
-            rid = str(r.get('id') or r.get('number') or '')
-            expire_date = str(r.get('expireDate', '') or '')[:10]
-            left = days_left(expire_date)
-            if left is None or left < 0 or left > remind:
-                continue
-            stats['due'] += 1
-            text = reminder_text(r, left)
-            subject = 'simJ 到期提醒：' + mask_number(r.get('number', ''))
-            if cloud_tg and settings.get('tgEnabled') and settings.get('botToken') and settings.get('chatId'):
-                if already_sent(conn, api, rid, 'tg', today, expire_date):
-                    stats['duplicate'] += 1
-                else:
-                    ok, msg = send_tg(settings.get('botToken'), settings.get('chatId'), text)
-                    write_sent_log(conn, api, rid, 'tg', today, expire_date, ok, msg)
-                    commit_and_checkpoint(conn)
-                    if ok: stats['tg'] += 1
-                    else: stats['failed'] += 1
-            elif cloud_tg:
-                stats['configMissing'] += 1
-            if cloud_mail and settings.get('smtpEnabled') and settings.get('smtpTo'):
-                if already_sent(conn, api, rid, 'mail', today, expire_date):
-                    stats['duplicate'] += 1
-                else:
-                    ok, msg = send_mail(settings, subject, text)
-                    write_sent_log(conn, api, rid, 'mail', today, expire_date, ok, msg)
-                    commit_and_checkpoint(conn)
-                    if ok: stats['mail'] += 1
-                    else: stats['failed'] += 1
-            elif cloud_mail:
-                stats['configMissing'] += 1
-    conn.execute('insert into reminder_runs(scope,api_key,checked_at,stats_json) values(?,?,?,?)',
-                 ('key' if only_key else 'all', clean_key(only_key) if only_key else '', int(time.time()), json.dumps(stats, ensure_ascii=False)))
-    conn.execute('delete from reminder_runs where id not in (select id from reminder_runs order by checked_at desc, id desc limit 500)')
-    commit_and_checkpoint(conn)
-    conn.close()
-    return stats
-
-
-def reminder_status(api_key):
-    conn = db()
-    ensure_runtime_migrations(conn)
-    settings = load_settings_dict(conn, api_key)
-    records = load_records_list(conn, api_key)
-    remind = int(settings.get('remindDays') or settings.get('remind天') or 7)
-    due = 0
-    for r in records:
-        left = days_left(str(r.get('expireDate',''))[:10])
-        if left is not None and 0 <= left <= remind:
-            due += 1
-    run = conn.execute('select checked_at, stats_json from reminder_runs where (api_key=? or scope=?) order by checked_at desc, id desc limit 1', (api_key, 'all')).fetchone()
-    sent_rows = conn.execute('select record_id, channel, day, expire_date, sent_at, status from sent_log where api_key=? order by sent_at desc limit 10', (api_key,)).fetchall()
-    conn.close()
-    now = int(time.time())
-    from datetime import datetime, timedelta
-    dt = datetime.now().replace(hour=DEFAULT_CHECK_HOUR, minute=DEFAULT_CHECK_MINUTE, second=0, microsecond=0)
-    if dt.timestamp() <= now:
-        dt = dt + timedelta(days=1)
-    last_stats = {}
-    if run:
-        try: last_stats = json.loads(run['stats_json'] or '{}')
-        except Exception: last_stats = {}
-    return {'cloudEnabled': bool(settings.get('cloudEnabled', False)), 'records': len(records), 'dueNow': due, 'remindDays': remind, 'lastCheckAt': int(run['checked_at']) if run else 0, 'nextCheckAt': int(dt.timestamp()), 'lastStats': last_stats, 'lastSent': [dict(r) for r in sent_rows]}
-
-
-def loop():
-    global _last_daily_check_day
-    while True:
-        try:
-            now = time.localtime()
-            today = date.today().isoformat()
-            if now.tm_hour == DEFAULT_CHECK_HOUR and now.tm_min == DEFAULT_CHECK_MINUTE and _last_daily_check_day != today:
-                print('daily-check', check_once(None, source='daily'), flush=True)
-                _last_daily_check_day = today
-        except Exception as e:
-            print('daily check error', e, flush=True)
-        time.sleep(30)
-
+# ---------------------------------------------------------------------------
+# HTTP
+# ---------------------------------------------------------------------------
 
 class H(BaseHTTPRequestHandler):
-    def _json(self, code, obj):
-        data = json.dumps(obj, ensure_ascii=False).encode()
+    server_version = "simJ-E2EE/6"
+    # HTTP/1.0 + abrupt close confuses Android HttpURLConnection
+    # ("ProtocolException: unexpected end of stream" on register/login).
+    protocol_version = "HTTP/1.1"
+
+    def _json(self, code: int, obj: dict, extra_headers: dict | None = None):
+        body = json.dumps(obj, ensure_ascii=False).encode("utf-8")
         self.send_response(code)
-        self.send_header('Content-Type', 'application/json; charset=utf-8')
-        self.send_header('Content-Length', str(len(data)))
+        self.send_header("Content-Type", "application/json; charset=utf-8")
+        self.send_header("Content-Length", str(len(body)))
+        self.send_header("Connection", "close")
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("Access-Control-Allow-Origin", self.headers.get("Origin") or "*")
+        self.send_header("Access-Control-Allow-Credentials", "true")
+        self.send_header("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Session-Token, X-API-Key")
+        self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+        if extra_headers:
+            for k, v in extra_headers.items():
+                self.send_header(k, v)
         self.end_headers()
-        self.wfile.write(data)
+        self.wfile.write(body)
+        try:
+            self.wfile.flush()
+        except Exception:
+            pass
+
+    def _session_cookie(self, token: str) -> dict:
+        return {
+            "Set-Cookie": "simj_session=%s; Path=/; HttpOnly; SameSite=Lax; Max-Age=%d"
+            % (urllib.parse.quote(token), SESSION_TTL)
+        }
+
+    def _clear_cookie(self) -> dict:
+        return {"Set-Cookie": "simj_session=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0"}
 
     def _read_json(self):
-        n = int(self.headers.get('Content-Length', '0') or 0)
-        body = self.rfile.read(n).decode('utf-8', 'ignore')
         try:
-            return json.loads(body or '{}')
+            n = int(self.headers.get("Content-Length") or 0)
+        except Exception:
+            n = 0
+        raw = self.rfile.read(n) if n > 0 else b"{}"
+        try:
+            return json.loads(raw.decode("utf-8") or "{}")
         except Exception:
             return None
 
-    def _auth_key(self):
-        k = clean_key(self.headers.get('X-API-Key', ''))
-        return k if user_enabled(k) else ''
+    def _session(self):
+        return session_from_headers(self.headers)
 
+    def _path(self) -> str:
+        return urllib.parse.urlparse(self.path).path
+
+    def do_OPTIONS(self):
+        self.send_response(204)
+        self.send_header("Access-Control-Allow-Origin", self.headers.get("Origin") or "*")
+        self.send_header("Access-Control-Allow-Credentials", "true")
+        self.send_header("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Session-Token, X-API-Key")
+        self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+        self.end_headers()
+
+    # ---- GET ----
     def do_GET(self):
-        if self.path.startswith('/api/status'):
-            conn = db()
-            users = conn.execute('select count(*) c from users where enabled=1').fetchone()['c']
-            records = conn.execute('select count(*) c from user_records').fetchone()['c']
-            settings = conn.execute('select count(*) c from user_settings').fetchone()['c']
-            backups = conn.execute('select count(*) c from sync_backups').fetchone()['c']
-            schema_ver = None
-            try:
-                schema_ver = conn.execute("select value from schema_meta where key='version'").fetchone()['value']
-            except Exception:
-                schema_ver = None
-            conn.close()
-            return self._json(200, {'ok': True, 'service': 'simjiang-reminder', 'version': 'v3-structured', 'users': users, 'records': records, 'settings': settings, 'backups': backups, 'dbPath': str(DB), 'schemaVersion': schema_ver, 'time': int(time.time()), 'features': {'structured': True, 'wal_checkpoint': True, 'merge': True, 'backup': True, 'backup_restore': True}})
-        if self.path.startswith('/api/sync') or self.path.startswith('/api/pull'):
-            api_key = self._auth_key()
-            if not api_key:
-                return self._json(401, {'ok': False, 'error': 'bad api key'})
-            conn = db()
-            row = conn.execute('SELECT updated_at FROM users WHERE api_key=?', (api_key,)).fetchone()
-            if not row:
-                conn.close()
-                return self._json(401, {'ok': False, 'error': 'bad api key'})
-            count_records = conn.execute('SELECT count(*) c FROM user_records WHERE api_key=?', (api_key,)).fetchone()['c']
-            settings_row = conn.execute('SELECT 1 FROM user_settings WHERE api_key=?', (api_key,)).fetchone()
-            if count_records == 0 and not settings_row:
-                conn.close()
-                return self._json(404, {'ok': False, 'error': 'no cloud data', 'message': '当前 Key 暂无云端数据'})
-            payload = assemble_payload(conn, api_key)
-            resp = {'ok': True, 'payload': payload, 'records': len(payload.get('records') or []), 'updatedAt': row['updated_at'], 'apiKeyTail': api_key[-6:]}
-            conn.close()
-            return self._json(200, resp)
-        if self.path.startswith('/api/meta'):
-            api_key = self._auth_key()
-            if not api_key:
-                return self._json(401, {'ok': False, 'error': 'bad api key'})
-            conn = db()
-            row = conn.execute('SELECT updated_at FROM users WHERE api_key=?', (api_key,)).fetchone()
-            if not row:
-                conn.close()
-                return self._json(401, {'ok': False, 'error': 'bad api key'})
-            count_records = conn.execute('SELECT count(*) c FROM user_records WHERE api_key=?', (api_key,)).fetchone()['c']
-            has_settings = bool(conn.execute('SELECT 1 FROM user_settings WHERE api_key=?', (api_key,)).fetchone())
-            conn.close()
-            return self._json(200, {'ok': True, 'records': count_records, 'hasSettings': has_settings, 'updatedAt': row['updated_at'], 'apiKeyTail': api_key[-6:]})
-        if self.path.startswith('/api/reminder-status'):
-            api_key = self._auth_key()
-            if not api_key:
-                return self._json(401, {'ok': False, 'error': 'bad api key'})
-            st = reminder_status(api_key)
-            st['ok'] = True
-            return self._json(200, st)
-        if self.path.startswith('/api/key-info'):
-            api_key = self._auth_key()
-            if not api_key:
-                return self._json(401, {'ok': False, 'error': 'bad api key'})
-            conn = db()
-            row = conn.execute('SELECT created_at, updated_at FROM users WHERE api_key=?', (api_key,)).fetchone()
-            if not row:
-                conn.close()
-                return self._json(401, {'ok': False, 'error': 'bad api key'})
-            count_records = conn.execute('SELECT count(*) c FROM user_records WHERE api_key=?', (api_key,)).fetchone()['c']
-            has_settings = bool(conn.execute('SELECT 1 FROM user_settings WHERE api_key=?', (api_key,)).fetchone())
-            conn.close()
-            return self._json(200, {'ok': True, 'apiKeyTail': api_key[-6:], 'records': count_records, 'hasSettings': has_settings, 'createdAt': row['created_at'], 'updatedAt': row['updated_at']})
-        if self.path.startswith('/api/backups'):
-            api_key = self._auth_key()
-            if not api_key:
-                return self._json(401, {'ok': False, 'error': 'bad api key'})
-            path_only = urllib.parse.urlparse(self.path).path
-            parts = [p for p in path_only.split('/') if p]
-            if len(parts) == 3 and parts[2].isdigit():
-                bid = int(parts[2])
-                conn = db()
-                row = conn.execute('SELECT id, reason, records_count, created_at, payload FROM sync_backups WHERE id=? AND api_key=?', (bid, api_key)).fetchone()
-                conn.close()
-                if not row:
-                    return self._json(404, {'ok': False, 'error': 'backup not found'})
-                payload_text = row['payload'] or '{}'
-                summary = {'settingsKeys': [], 'recordSamples': [], 'payloadPreview': payload_text[:1000]}
-                try:
-                    payload_obj = json.loads(payload_text)
-                    summary['settingsKeys'] = sorted(list((payload_obj.get('settings') or {}).keys()))
-                    recs = payload_obj.get('records') or []
-                    summary['recordSamples'] = [
-                        {'id': r.get('id'), 'countryCode': r.get('countryCode'), 'number': str(r.get('number', ''))[-4:], 'operator': r.get('operator'), 'expireDate': r.get('expireDate')} for r in recs[:5]
-                    ]
-                except Exception:
-                    pass
-                return self._json(200, {'ok': True, 'backup': {'id': row['id'], 'reason': row['reason'], 'records_count': row['records_count'], 'created_at': row['created_at']}, 'summary': summary, 'apiKeyTail': api_key[-6:]})
-            conn = db()
-            total = conn.execute('SELECT count(*) c FROM sync_backups WHERE api_key=?', (api_key,)).fetchone()['c']
-            qs = urllib.parse.urlparse(self.path).query
-            params = urllib.parse.parse_qs(qs)
-            raw_limit = (params.get('limit', ['200'])[0] or '200').strip()
-            limit = 200
-            try:
-                limit = max(1, min(1000, int(raw_limit)))
-            except Exception:
-                limit = 200
-            rows = conn.execute('SELECT id, reason, records_count, created_at FROM sync_backups WHERE api_key=? ORDER BY created_at DESC, id DESC LIMIT ?', (api_key, limit)).fetchall()
-            conn.close()
-            return self._json(200, {'ok': True, 'apiKeyTail': api_key[-6:], 'total': total, 'returned': len(rows), 'limit': limit, 'backups': [dict(r) for r in rows]})
-        return self._json(404, {'ok': False, 'error': 'not found'})
+        path = self._path()
 
+        if path == "/api/status":
+            conn = db()
+            try:
+                users = conn.execute("SELECT count(*) c FROM accounts WHERE enabled=1").fetchone()["c"]
+                records = conn.execute("SELECT coalesce(sum(records_count),0) c FROM encrypted_sync").fetchone()["c"]
+                schema = conn.execute("SELECT value FROM schema_meta WHERE key='version'").fetchone()
+                return self._json(
+                    200,
+                    {
+                        "ok": True,
+                        "service": "simjiang-reminder",
+                        "version": SERVICE_VERSION,
+                        "users": users,
+                        "records": records,
+                        "schemaVersion": schema["value"] if schema else SCHEMA_VERSION,
+                        "time": int(time.time()),
+                        "e2ee": True,
+                        "features": {
+                            "account_e2ee": True,
+                            "private_key_once": True,
+                            "password_reset_by_key": True,
+                            "registration_toggle": True,
+                            "globe_coverage": True,
+                            "admin_portal": True,
+                            "user_portal": True,
+                            "admin_2fa": True,
+                            "admin_keepass": False,
+                        },
+                    },
+                )
+            finally:
+                conn.close()
+
+        if path == "/api/public-settings":
+            return self._json(200, {"ok": True, **public_settings()})
+
+        if path == "/api/account/me":
+            sess = self._session()
+            if not sess:
+                return self._json(401, {"ok": False, "message": "请先登录"})
+            conn = db()
+            try:
+                row = conn.execute(
+                    "SELECT private_key_tail, role, created_at FROM accounts WHERE id=?",
+                    (sess["account_id"],),
+                ).fetchone()
+                cov = load_coverage(conn, sess["account_id"])
+                sync_row = conn.execute(
+                    "SELECT updated_at, records_count FROM encrypted_sync WHERE account_id=?",
+                    (sess["account_id"],),
+                ).fetchone()
+                updated_at = int(sync_row["updated_at"] if sync_row else 0)
+                records = int(
+                    (sync_row["records_count"] if sync_row else 0) or cov.get("records") or 0
+                )
+                return self._json(
+                    200,
+                    {
+                        "ok": True,
+                        "accountId": sess["account_id"],
+                        "username": sess["username"],
+                        "role": sess["role"],
+                        "canAdmin": is_admin(sess["role"]),
+                        "privateKeyTail": (row["private_key_tail"] if row else ""),
+                        "apiKeyTail": (row["private_key_tail"] if row else ""),
+                        "hasData": bool(records or cov.get("countries")),
+                        "hasSettings": bool(records or cov.get("countries")),
+                        "records": records,
+                        "updatedAt": updated_at,
+                        "coverage": cov,
+                        "serverSettings": public_settings(conn),
+                    },
+                )
+            finally:
+                conn.close()
+
+        # Legacy App endpoints (same account session / e2ee model)
+        if path in ("/api/key-info", "/api/meta"):
+            sess = self._session()
+            if not sess:
+                return self._json(401, {"ok": False, "message": "请先登录"})
+            conn = db()
+            try:
+                row = conn.execute(
+                    "SELECT private_key_tail FROM accounts WHERE id=?",
+                    (sess["account_id"],),
+                ).fetchone()
+                sync_row = conn.execute(
+                    "SELECT updated_at, records_count FROM encrypted_sync WHERE account_id=?",
+                    (sess["account_id"],),
+                ).fetchone()
+                return self._json(
+                    200,
+                    {
+                        "ok": True,
+                        "username": sess["username"],
+                        "apiKeyTail": (row["private_key_tail"] if row else ""),
+                        "privateKeyTail": (row["private_key_tail"] if row else ""),
+                        "records": int(sync_row["records_count"] if sync_row else 0),
+                        "updatedAt": int(sync_row["updated_at"] if sync_row else 0),
+                        "hasSettings": bool(sync_row),
+                        "hasData": bool(sync_row),
+                        "mode": "account-e2ee",
+                    },
+                )
+            finally:
+                conn.close()
+
+        if path == "/api/reminder-status":
+            sess = self._session()
+            if not sess:
+                return self._json(401, {"ok": False, "message": "请先登录"})
+            # Server cannot decrypt vault — reminders run on device.
+            return self._json(
+                200,
+                {
+                    "ok": True,
+                    "lastCheckAt": 0,
+                    "nextCheckAt": 0,
+                    "dueNow": 0,
+                    "mode": "client-e2ee",
+                    "message": "端到端加密：到期检查由 App 本机执行",
+                    "lastStats": {"due": 0, "mail": 0, "tg": 0, "duplicate": 0},
+                },
+            )
+
+        if path == "/api/backups" or path.startswith("/api/backups/"):
+            sess = self._session()
+            if not sess:
+                return self._json(401, {"ok": False, "message": "请先登录"})
+            conn = db()
+            try:
+                qs = urllib.parse.urlparse(self.path).query
+                params = urllib.parse.parse_qs(qs)
+                if path == "/api/backups":
+                    limit = max(1, min(100, int((params.get("limit") or ["20"])[0] or 20)))
+                    total = int(
+                        conn.execute(
+                            "SELECT count(*) c FROM sync_backups WHERE account_id=?",
+                            (sess["account_id"],),
+                        ).fetchone()["c"]
+                        or 0
+                    )
+                    rows = conn.execute(
+                        """SELECT id, records_count, reason, created_at
+                           FROM sync_backups WHERE account_id=?
+                           ORDER BY created_at DESC, id DESC LIMIT ?""",
+                        (sess["account_id"], limit),
+                    ).fetchall()
+                    backups = [
+                        {
+                            "id": r["id"],
+                            "records_count": int(r["records_count"] or 0),
+                            "reason": r["reason"] or "pre-sync",
+                            "created_at": int(r["created_at"] or 0),
+                        }
+                        for r in rows
+                    ]
+                    return self._json(
+                        200, {"ok": True, "total": total, "backups": backups, "limit": limit}
+                    )
+
+                # /api/backups/{id}
+                bid_s = path[len("/api/backups/") :].strip("/")
+                if not bid_s.isdigit():
+                    return self._json(404, {"ok": False, "message": "备份不存在"})
+                bid = int(bid_s)
+                row = conn.execute(
+                    """SELECT id, records_count, reason, created_at, coverage_json
+                       FROM sync_backups WHERE account_id=? AND id=?""",
+                    (sess["account_id"], bid),
+                ).fetchone()
+                if not row:
+                    return self._json(404, {"ok": False, "message": "备份不存在"})
+                try:
+                    cov = json.loads(row["coverage_json"] or "{}")
+                except Exception:
+                    cov = {}
+                return self._json(
+                    200,
+                    {
+                        "ok": True,
+                        "backup": {
+                            "id": row["id"],
+                            "records_count": int(row["records_count"] or 0),
+                            "reason": row["reason"] or "pre-sync",
+                            "created_at": int(row["created_at"] or 0),
+                        },
+                        "summary": {
+                            "records": int(row["records_count"] or 0),
+                            "countryCount": int(cov.get("countryCount") or len(cov.get("countries") or [])),
+                            "esims": int(cov.get("esims") or 0),
+                            "mode": "account-e2ee",
+                            "note": "备份仅含加密包与覆盖统计，服务器无法展示号码明文",
+                        },
+                    },
+                )
+            finally:
+                conn.close()
+
+        if path == "/api/account/coverage":
+            sess = self._session()
+            if not sess:
+                return self._json(401, {"ok": False, "message": "请先登录"})
+            conn = db()
+            try:
+                return self._json(200, {"ok": True, "coverage": load_coverage(conn, sess["account_id"])})
+            finally:
+                conn.close()
+
+        if path in ("/api/sync", "/api/pull"):
+            sess = self._session()
+            if not sess:
+                return self._json(401, {"ok": False, "message": "请先登录", "error": "not logged in"})
+            conn = db()
+            try:
+                row = conn.execute(
+                    "SELECT envelope, coverage_json, records_count, updated_at FROM encrypted_sync WHERE account_id=?",
+                    (sess["account_id"],),
+                ).fetchone()
+                if not row:
+                    return self._json(404, {"ok": False, "error": "no cloud data", "message": "当前账户暂无云端数据"})
+                try:
+                    envelope = json.loads(row["envelope"] or "{}")
+                except Exception:
+                    envelope = {}
+                try:
+                    coverage = json.loads(row["coverage_json"] or "{}")
+                except Exception:
+                    coverage = {}
+                legacy_records = records_from_coverage(coverage)
+                return self._json(
+                    200,
+                    {
+                        "ok": True,
+                        "encryptedVault": envelope,
+                        "coverage": coverage,
+                        # Compatibility for older app builds that only understand
+                        # plaintext payload.records. This is still account-private:
+                        # /api/sync requires the logged-in user's session token.
+                        "payload": {"records": legacy_records},
+                        "legacyRecords": len(legacy_records),
+                        "records": int(row["records_count"] or 0),
+                        "updatedAt": int(row["updated_at"] or 0),
+                        "mode": "account-e2ee",
+                    },
+                )
+            finally:
+                conn.close()
+
+        if path == "/api/admin/settings":
+            sess = self._session()
+            if not sess:
+                return self._json(401, {"ok": False, "message": "请先登录"})
+            if not is_admin(sess["role"]):
+                return self._json(403, {"ok": False, "message": "需要管理员权限"})
+            conn = db()
+            try:
+                return self._json(
+                    200,
+                    {
+                        "ok": True,
+                        **public_settings(conn),
+                        **admin_security_detail(conn),
+                    },
+                )
+            finally:
+                conn.close()
+
+        if path == "/api/admin/security":
+            sess = self._session()
+            if not sess:
+                return self._json(401, {"ok": False, "message": "请先登录"})
+            if not is_admin(sess["role"]):
+                return self._json(403, {"ok": False, "message": "需要管理员权限"})
+            conn = db()
+            try:
+                return self._json(200, {"ok": True, **admin_security_detail(conn)})
+            finally:
+                conn.close()
+
+        if path == "/api/admin/login-flags":
+            # public: login form needs to know which second factors to show
+            conn = db()
+            try:
+                return self._json(200, {"ok": True, **admin_security_public(conn)})
+            finally:
+                conn.close()
+
+        if path == "/api/admin/users":
+            sess = self._session()
+            if not sess:
+                return self._json(401, {"ok": False, "message": "请先登录"})
+            if not is_admin(sess["role"]):
+                return self._json(403, {"ok": False, "message": "需要管理员权限"})
+            conn = db()
+            try:
+                rows = conn.execute(
+                    """SELECT a.id, a.username, a.role, a.enabled, a.created_at, a.updated_at,
+                              coalesce(e.records_count,0) records,
+                              e.updated_at sync_updated_at
+                       FROM accounts a
+                       LEFT JOIN encrypted_sync e ON e.account_id=a.id
+                       ORDER BY a.created_at ASC"""
+                ).fetchall()
+                users = []
+                for r in rows:
+                    users.append(
+                        {
+                            "id": r["id"],
+                            "username": r["username"],
+                            "role": r["role"],
+                            "enabled": bool(r["enabled"]),
+                            "createdAt": r["created_at"],
+                            "updatedAt": r["updated_at"],
+                            "records": int(r["records"] or 0),
+                            "syncUpdatedAt": int(r["sync_updated_at"] or 0),
+                        }
+                    )
+                # public_settings also has a "users" count — put list last and
+                # expose count as userCount so the admin table is not overwritten.
+                ps = public_settings(conn)
+                return self._json(
+                    200,
+                    {
+                        "ok": True,
+                        "allowRegistration": ps.get("allowRegistration"),
+                        "userCount": ps.get("users", len(users)),
+                        "service": ps.get("service"),
+                        "version": ps.get("version"),
+                        "e2ee": ps.get("e2ee"),
+                        "users": users,
+                    },
+                )
+            finally:
+                conn.close()
+
+        if path.startswith("/api/"):
+            return self._json(404, {"ok": False, "error": "not found"})
+
+        return self._serve_static()
+
+    # ---- POST ----
     def do_POST(self):
-        if self.path.startswith('/api/register'):
-            payload = self._read_json() or {}
-            k = new_key()
-            nickname = str(payload.get('nickname') or '').strip()[:50]
-            ensure_user(k, nickname)
-            return self._json(200, {'ok': True, 'apiKey': k, 'message': '已生成独立 API Key'})
-        api_key = self._auth_key()
-        if not api_key:
-            return self._json(401, {'ok': False, 'error': 'bad api key'})
+        path = self._path()
         payload = self._read_json()
         if payload is None:
-            return self._json(400, {'ok': False, 'error': 'bad json'})
-        if self.path.startswith('/api/sync'):
-            qs = urllib.parse.urlparse(self.path).query
-            params = urllib.parse.parse_qs(qs)
-            mode = (params.get('mode', ['merge'])[0] or 'merge').lower()
-            if mode not in ('merge', 'replace'):
-                mode = 'merge'
-            settings_in = payload.get('settings') or {}
-            records_in = payload.get('records') or []
-            conn = db()
-            now = int(time.time())
-            if mode == 'replace':
-                current_payload = assemble_payload(conn, api_key)
-                current_records = current_payload.get('records') or []
-                if current_records or (current_payload.get('settings') or {}):
-                    conn.execute('INSERT INTO sync_backups(api_key, payload, reason, records_count, created_at) VALUES(?,?,?,?,?)',
-                                 (api_key, json.dumps(current_payload, ensure_ascii=False), 'replace', len(current_records), now))
-                replace_records(conn, api_key, records_in)
-                upsert_settings_from_payload(conn, api_key, settings_in)
-            else:
-                merged_records = merge_records(conn, api_key, records_in)
-                prev_settings, prev_records = fetch_key_counts(conn, api_key)
-                insert_backup_from_current(conn, api_key, 'merge', prev_record_count=len(prev_records), prev_settings_signature=json.dumps(prev_settings, sort_keys=True, ensure_ascii=False))
-                replace_records(conn, api_key, merged_records)
-                upsert_settings_from_payload(conn, api_key, settings_in)
-                records_in = merged_records
-            conn.execute('UPDATE users SET updated_at=? WHERE api_key=?', (now, api_key))
-            commit_and_checkpoint(conn)
-            count = conn.execute('SELECT count(*) c FROM user_records WHERE api_key=?', (api_key,)).fetchone()['c']
-            conn.close()
-            return self._json(200, {'ok': True, 'records': count, 'message': ('覆盖' if mode == 'replace' else '合并') + '同步成功', 'apiKeyTail': api_key[-6:]})
-        if self.path.startswith('/api/backups/clear'):
-            keep = 50
-            raw_keep = payload.get('keep') if payload else None
-            if raw_keep not in (None, ''):
+            return self._json(400, {"ok": False, "message": "JSON 无效"})
+
+        if path == "/api/account/register":
+            ok, msg, data = register_account(payload.get("username"), payload.get("password"))
+            if not ok:
+                return self._json(400, {"ok": False, "message": msg})
+            headers = self._session_cookie(data["token"])
+            return self._json(
+                200,
+                {
+                    "ok": True,
+                    "message": msg,
+                    "token": data["token"],
+                    "privateKey": data["privateKey"],  # shown once — server does not keep plaintext
+                    "privateKeyTail": data["privateKeyTail"],
+                    "user": {
+                        "username": data["username"],
+                        "role": data["role"],
+                        "accountId": data["accountId"],
+                    },
+                    "warning": "请立即保存私钥！私钥仅用于忘记密码时重置；日常登录与云端恢复只需账号+密码。服务器不保存私钥。",
+                },
+                headers,
+            )
+
+        if path == "/api/account/login":
+            ok, msg, data = login_account(payload.get("username"), payload.get("password"))
+            if not ok:
+                return self._json(401, {"ok": False, "message": msg})
+            return self._json(
+                200,
+                {
+                    "ok": True,
+                    "message": msg,
+                    "token": data["token"],
+                    "user": {
+                        "username": data["username"],
+                        "role": data["role"],
+                        "accountId": data["accountId"],
+                        "privateKeyTail": data.get("privateKeyTail") or "",
+                    },
+                },
+                self._session_cookie(data["token"]),
+            )
+
+        if path == "/api/account/reset-password":
+            ok, msg = reset_password(
+                payload.get("username"),
+                payload.get("privateKey") or payload.get("private_key") or payload.get("key"),
+                payload.get("newPassword") or payload.get("password"),
+            )
+            return self._json(200 if ok else 400, {"ok": ok, "message": msg})
+
+        if path == "/api/account/logout":
+            sess = self._session()
+            if sess:
+                conn = db()
                 try:
-                    keep = max(0, min(5000, int(raw_keep)))
-                except Exception:
-                    keep = 50
+                    conn.execute("DELETE FROM sessions WHERE token=?", (sess["token"],))
+                    commit(conn)
+                finally:
+                    conn.close()
+            return self._json(200, {"ok": True}, self._clear_cookie())
+
+        if path == "/api/admin/settings":
+            sess = self._session()
+            if not sess:
+                return self._json(401, {"ok": False, "message": "请先登录"})
+            if not is_admin(sess["role"]):
+                return self._json(403, {"ok": False, "message": "需要管理员权限"})
             conn = db()
-            total_before = conn.execute('SELECT count(*) c FROM sync_backups WHERE api_key=?', (api_key,)).fetchone()['c']
-            keep_ids = [r['id'] for r in conn.execute('SELECT id FROM sync_backups WHERE api_key=? ORDER BY created_at DESC, id DESC LIMIT ?', (api_key, keep)).fetchall()]
-            if keep_ids:
-                conn.execute('DELETE FROM sync_backups WHERE api_key=? AND id NOT IN (%s)' % ','.join(['?'] * len(keep_ids)), [api_key] + keep_ids)
-            else:
-                conn.execute('DELETE FROM sync_backups WHERE api_key=?', (api_key,))
-            total_after = conn.execute('SELECT count(*) c FROM sync_backups WHERE api_key=?', (api_key,)).fetchone()['c']
-            commit_and_checkpoint(conn)
-            conn.close()
-            return self._json(200, {'ok': True, 'message': '已清理旧备份', 'before': total_before, 'after': total_after, 'keep': keep, 'apiKeyTail': api_key[-6:]})
-        if self.path.startswith('/api/restore-backup'):
-            backup_id = payload.get('backupId')
-            if not backup_id:
-                return self._json(400, {'ok': False, 'error': 'missing backupId', 'message': '缺少备份 ID'})
-            conn = db()
-            row = conn.execute('SELECT id, api_key, payload FROM sync_backups WHERE id=? AND api_key=?', (int(backup_id), api_key)).fetchone()
-            if not row:
-                conn.close()
-                return self._json(404, {'ok': False, 'error': 'backup not found', 'message': '未找到可恢复的备份'})
             try:
-                payload_data = json.loads(row['payload'])
-            except Exception:
-                payload_data = {}
-            insert_backup_from_current(conn, api_key, 'pre-restore')
-            replace_records(conn, api_key, payload_data.get('records') or [])
-            upsert_settings_from_payload(conn, api_key, payload_data.get('settings') or {})
-            conn.execute('UPDATE users SET updated_at=? WHERE api_key=?', (int(time.time()), api_key))
-            commit_and_checkpoint(conn)
-            count = conn.execute('SELECT count(*) c FROM user_records WHERE api_key=?', (api_key,)).fetchone()['c']
-            conn.close()
-            return self._json(200, {'ok': True, 'records': count, 'message': '已恢复指定备份', 'apiKeyTail': api_key[-6:], 'backupId': int(backup_id)})
-        if self.path.startswith('/api/test-telegram'):
-            s = payload.get('settings') or payload
-            ok, msg = send_tg(s.get('botToken'), s.get('chatId'), '✅ simJ 云端 Telegram 测试成功\nKey: ****' + api_key[-6:])
-            return self._json(200, {'ok': ok, 'message': msg})
-        if self.path.startswith('/api/test-email'):
-            s = payload.get('settings') or payload
-            ok, msg = send_mail(s, 'simJ 云端邮件测试', '✅ simJ 云端邮件测试成功。\nKey: ****' + api_key[-6:])
-            return self._json(200, {'ok': ok, 'message': msg})
-        if self.path.startswith('/api/check-now'):
-            stats = check_once(api_key, force=True, source='manual')
-            message = '已检查：%s 个号码，%s 个进入提醒区间，邮件发送 %s 条，TG 发送 %s 条，跳过重复 %s 条' % (stats.get('records',0), stats.get('due',0), stats.get('mail',0), stats.get('tg',0), stats.get('duplicate',0))
-            return self._json(200, {'ok': True, 'message': message, 'stats': stats})
-        return self._json(404, {'ok': False, 'error': 'not found'})
+                if "allowRegistration" in payload:
+                    set_setting(conn, "allow_registration", "1" if payload.get("allowRegistration") else "0")
+                    commit(conn)
+                return self._json(200, {"ok": True, "message": "设置已保存", **public_settings(conn)})
+            finally:
+                conn.close()
+
+        if path == "/api/admin/users":
+            sess = self._session()
+            if not sess:
+                return self._json(401, {"ok": False, "message": "请先登录"})
+            if not is_admin(sess["role"]):
+                return self._json(403, {"ok": False, "message": "需要管理员权限"})
+            code, body = admin_manage_account(sess["account_id"], payload)
+            return self._json(code, body)
+
+        if path == "/api/admin/login":
+            ok, msg, data = login_admin(
+                payload.get("username"),
+                payload.get("password"),
+                totp=payload.get("totp") or payload.get("otp") or payload.get("code") or "",
+            )
+            if not ok:
+                body = {"ok": False, "message": msg}
+                if isinstance(data, dict):
+                    body.update(data)
+                # 401 for bad password; 400 for missing second factor
+                code = 400 if data and data.get("step") == "second_factor" else 401
+                return self._json(code, body)
+            return self._json(
+                200,
+                {
+                    "ok": True,
+                    "message": msg,
+                    "token": data["token"],
+                    "user": {
+                        "username": data["username"],
+                        "role": data["role"],
+                        "accountId": data["accountId"],
+                    },
+                },
+                self._session_cookie(data["token"]),
+            )
+
+        if path == "/api/admin/security":
+            sess = self._session()
+            if not sess:
+                return self._json(401, {"ok": False, "message": "请先登录"})
+            if not is_admin(sess["role"]):
+                return self._json(403, {"ok": False, "message": "需要管理员权限"})
+            action = str(payload.get("action") or "").strip().lower()
+            conn = db()
+            try:
+                # ---- 2FA setup ----
+                if action in ("2fa_begin", "begin2fa", "setup2fa"):
+                    secret = new_totp_secret()
+                    set_setting(conn, "admin_2fa_pending_secret", secret)
+                    # do NOT enable yet
+                    commit(conn)
+                    return self._json(
+                        200,
+                        {
+                            "ok": True,
+                            "message": "已生成 2FA 密钥，请用验证器扫描后提交验证码确认",
+                            "secret": secret,
+                            "otpauth": otpauth_uri(secret, sess["username"]),
+                            **admin_security_detail(conn),
+                        },
+                    )
+                if action in ("2fa_confirm", "confirm2fa"):
+                    pending = get_setting(conn, "admin_2fa_pending_secret", "")
+                    if not pending:
+                        return self._json(400, {"ok": False, "message": "没有待确认的 2FA 密钥，请先点「生成 2FA」"})
+                    code = payload.get("totp") or payload.get("code") or ""
+                    if not verify_totp(pending, code):
+                        return self._json(400, {"ok": False, "message": "验证码错误，请重试"})
+                    set_setting(conn, "admin_2fa_secret", pending)
+                    set_setting(conn, "admin_2fa_pending_secret", "")
+                    set_setting(conn, "admin_2fa_enabled", "1")
+                    commit(conn)
+                    return self._json(
+                        200,
+                        {
+                            "ok": True,
+                            "message": "2FA 已启用：之后管理员登录必须输入验证码",
+                            **admin_security_detail(conn),
+                        },
+                    )
+                if action in ("2fa_enable", "enable2fa"):
+                    if not get_setting(conn, "admin_2fa_secret", ""):
+                        return self._json(400, {"ok": False, "message": "请先生成并确认 2FA 密钥"})
+                    set_setting(conn, "admin_2fa_enabled", "1")
+                    commit(conn)
+                    return self._json(200, {"ok": True, "message": "已开启 2FA 登录校验", **admin_security_detail(conn)})
+                if action in ("2fa_disable", "disable2fa"):
+                    # require current password to disable
+                    row = conn.execute(
+                        "SELECT password_salt, password_hash FROM accounts WHERE id=?",
+                        (sess["account_id"],),
+                    ).fetchone()
+                    if not row or not verify_password(
+                        payload.get("password") or "", row["password_salt"], row["password_hash"]
+                    ):
+                        return self._json(400, {"ok": False, "message": "关闭 2FA 需填写当前管理员密码"})
+                    set_setting(conn, "admin_2fa_enabled", "0")
+                    if payload.get("wipeSecret"):
+                        set_setting(conn, "admin_2fa_secret", "")
+                        set_setting(conn, "admin_2fa_pending_secret", "")
+                    commit(conn)
+                    return self._json(200, {"ok": True, "message": "已关闭 2FA 登录校验", **admin_security_detail(conn)})
+
+                # ---- Removed legacy extra-factor actions ----
+                if action in (
+                    "keepass_set",
+                    "setkeepass",
+                    "keepass_enable",
+                    "passkey_set",
+                    "keepass_enable_only",
+                    "enablekeepass",
+                    "passkey_enable",
+                    "keepass_disable",
+                    "disablekeepass",
+                    "passkey_disable",
+                ):
+                    set_setting(conn, "admin_keepass_enabled", "0")
+                    set_setting(conn, "admin_keepass_salt", "")
+                    set_setting(conn, "admin_keepass_hash", "")
+                    commit(conn)
+                    return self._json(
+                        410,
+                        {
+                            "ok": False,
+                            "message": "旧第二因子功能已删除；管理员登录只保留账号密码和 2FA。",
+                            **admin_security_detail(conn),
+                        },
+                    )
+
+                if action in ("change_password", "password"):
+                    ok, msg = admin_set_password(
+                        sess["account_id"],
+                        payload.get("oldPassword") or payload.get("password") or "",
+                        payload.get("newPassword") or "",
+                    )
+                    return self._json(200 if ok else 400, {"ok": ok, "message": msg})
+
+                return self._json(
+                    400,
+                    {
+                        "ok": False,
+                        "message": "未知 action。可用：2fa_begin / 2fa_confirm / 2fa_enable / 2fa_disable / change_password",
+                        **admin_security_detail(conn),
+                    },
+                )
+            finally:
+                conn.close()
+
+        if path == "/api/sync":
+            sess = self._session()
+            if not sess:
+                return self._json(401, {"ok": False, "message": "请先登录", "error": "not logged in"})
+            envelope = payload.get("encryptedVault") or payload.get("envelope")
+            if not isinstance(envelope, dict):
+                return self._json(400, {"ok": False, "message": "缺少 encryptedVault（端到端加密包）"})
+            # basic envelope sanity — server never decrypts
+            if not (envelope.get("ciphertext") or envelope.get("cipherText")):
+                return self._json(400, {"ok": False, "message": "加密包格式无效"})
+            coverage = normalize_coverage(payload.get("coverage") if isinstance(payload.get("coverage"), dict) else {})
+            records = int(coverage.get("records") or payload.get("records") or 0)
+            now = int(time.time())
+            conn = db()
+            try:
+                existing = conn.execute(
+                    "SELECT envelope, coverage_json, records_count FROM encrypted_sync WHERE account_id=?",
+                    (sess["account_id"],),
+                ).fetchone()
+                if existing:
+                    conn.execute(
+                        """INSERT INTO sync_backups(account_id, envelope, coverage_json, records_count, reason, created_at)
+                           VALUES(?,?,?,?,?,?)""",
+                        (
+                            sess["account_id"],
+                            existing["envelope"],
+                            existing["coverage_json"] or "{}",
+                            int(existing["records_count"] or 0),
+                            "pre-sync",
+                            now,
+                        ),
+                    )
+                    purge_backups(conn, sess["account_id"])
+                conn.execute(
+                    """INSERT OR REPLACE INTO encrypted_sync(account_id, envelope, coverage_json, records_count, updated_at)
+                       VALUES(?,?,?,?,?)""",
+                    (
+                        sess["account_id"],
+                        json.dumps(envelope, ensure_ascii=False),
+                        json.dumps(coverage, ensure_ascii=False),
+                        records,
+                        now,
+                    ),
+                )
+                conn.execute("UPDATE accounts SET updated_at=? WHERE id=?", (now, sess["account_id"]))
+                commit(conn)
+                return self._json(
+                    200,
+                    {
+                        "ok": True,
+                        "message": "端到端加密同步成功",
+                        "records": records,
+                        "coverage": coverage,
+                        "updatedAt": now,
+                        "mode": "account-e2ee",
+                    },
+                )
+            finally:
+                conn.close()
+
+        # soft stubs for old app reminder buttons (no plaintext on server)
+        if path in ("/api/test-telegram", "/api/test-email", "/api/check-now"):
+            return self._json(
+                200,
+                {
+                    "ok": True,
+                    "message": "E2EE 模式下提醒配置保存在客户端加密包中；请在 App 本地触发提醒。",
+                },
+            )
+
+        if path == "/api/restore-backup":
+            sess = self._session()
+            if not sess:
+                return self._json(401, {"ok": False, "message": "请先登录"})
+            bid = int(payload.get("backupId") or payload.get("id") or 0)
+            if bid <= 0:
+                return self._json(400, {"ok": False, "message": "备份 ID 无效"})
+            conn = db()
+            try:
+                row = conn.execute(
+                    """SELECT envelope, coverage_json, records_count
+                       FROM sync_backups WHERE account_id=? AND id=?""",
+                    (sess["account_id"], bid),
+                ).fetchone()
+                if not row:
+                    return self._json(404, {"ok": False, "message": "备份不存在"})
+                now = int(time.time())
+                # snapshot current before restore
+                existing = conn.execute(
+                    "SELECT envelope, coverage_json, records_count FROM encrypted_sync WHERE account_id=?",
+                    (sess["account_id"],),
+                ).fetchone()
+                if existing:
+                    conn.execute(
+                        """INSERT INTO sync_backups(account_id, envelope, coverage_json, records_count, reason, created_at)
+                           VALUES(?,?,?,?,?,?)""",
+                        (
+                            sess["account_id"],
+                            existing["envelope"],
+                            existing["coverage_json"] or "{}",
+                            int(existing["records_count"] or 0),
+                            "pre-restore",
+                            now,
+                        ),
+                    )
+                conn.execute(
+                    """INSERT OR REPLACE INTO encrypted_sync(account_id, envelope, coverage_json, records_count, updated_at)
+                       VALUES(?,?,?,?,?)""",
+                    (
+                        sess["account_id"],
+                        row["envelope"],
+                        row["coverage_json"] or "{}",
+                        int(row["records_count"] or 0),
+                        now,
+                    ),
+                )
+                purge_backups(conn, sess["account_id"])
+                commit(conn)
+                return self._json(
+                    200,
+                    {
+                        "ok": True,
+                        "message": "已恢复指定加密备份，请在 App 拉取同步",
+                        "records": int(row["records_count"] or 0),
+                        "updatedAt": now,
+                    },
+                )
+            finally:
+                conn.close()
+
+        if path == "/api/backups/clear":
+            sess = self._session()
+            if not sess:
+                return self._json(401, {"ok": False, "message": "请先登录"})
+            keep = max(0, min(200, int(payload.get("keep") or 20)))
+            conn = db()
+            try:
+                purge_backups(conn, sess["account_id"], keep=keep)
+                commit(conn)
+                total = int(
+                    conn.execute(
+                        "SELECT count(*) c FROM sync_backups WHERE account_id=?",
+                        (sess["account_id"],),
+                    ).fetchone()["c"]
+                    or 0
+                )
+                return self._json(
+                    200,
+                    {"ok": True, "message": "备份已清理", "total": total, "keep": keep},
+                )
+            finally:
+                conn.close()
+
+        if path.startswith("/api/"):
+            return self._json(404, {"ok": False, "error": "not found"})
+
+        return self._json(404, {"ok": False, "error": "not found"})
+
+    # ---- static ----
+    def _serve_static(self):
+        path = self._path()
+        if path in ("", "/"):
+            path = "/index.html"
+        elif path == "/admin" or path == "/admin/":
+            path = "/admin.html"
+        elif path == "/user" or path == "/user/":
+            path = "/index.html"
+
+        # security: no path traversal
+        rel = path.lstrip("/")
+        if ".." in rel or rel.startswith("/"):
+            self.send_error(403)
+            return
+        file_path = (WEB_DIR / rel).resolve()
+        if not str(file_path).startswith(str(WEB_DIR.resolve())):
+            self.send_error(403)
+            return
+        if not file_path.is_file():
+            # SPA-ish fallback for globe
+            if path.startswith("/globe"):
+                file_path = WEB_DIR / "index.html"
+            else:
+                self.send_error(404)
+                return
+
+        ctype = mimetypes.guess_type(str(file_path))[0] or "application/octet-stream"
+        if file_path.suffix == ".html":
+            ctype = "text/html; charset=utf-8"
+        elif file_path.suffix == ".js":
+            ctype = "application/javascript; charset=utf-8"
+        elif file_path.suffix == ".json":
+            ctype = "application/json; charset=utf-8"
+        data = file_path.read_bytes()
+        # gzip large HTML/JS/JSON when client accepts it (globe page is multi‑MB)
+        accept_enc = (self.headers.get("Accept-Encoding") or "").lower()
+        use_gzip = (
+            "gzip" in accept_enc
+            and file_path.suffix in (".html", ".js", ".json", ".css", ".svg")
+            and len(data) > 2048
+        )
+        if use_gzip:
+            import gzip
+
+            data = gzip.compress(data, compresslevel=6)
+        self.send_response(200)
+        self.send_header("Content-Type", ctype)
+        self.send_header("Content-Length", str(len(data)))
+        if use_gzip:
+            self.send_header("Content-Encoding", "gzip")
+            self.send_header("Vary", "Accept-Encoding")
+        # Static packaging model:
+        # - index.html short cache (entry)
+        # - vendor/app/assets/data long cache (browser disk = "local" after first visit)
+        rel_posix = rel.replace("\\", "/")
+        if file_path.name == "index.html":
+            self.send_header("Cache-Control", "public, max-age=60")
+        elif (
+            rel_posix.startswith("vendor/")
+            or rel_posix.startswith("app/")
+            or rel_posix.startswith("assets/")
+            or rel_posix.startswith("data/")
+            or file_path.suffix in (".png", ".jpg", ".jpeg", ".webp", ".woff2", ".js", ".json")
+        ):
+            # 7 days; query ?v= on script tags busts when we ship new builds
+            self.send_header("Cache-Control", "public, max-age=604800, immutable")
+        else:
+            self.send_header("Cache-Control", "no-cache")
+        self.end_headers()
+        self.wfile.write(data)
 
     def log_message(self, fmt, *args):
-        print('%s - %s' % (self.address_string(), fmt % args), flush=True)
+        print("%s - %s" % (self.address_string(), fmt % args), flush=True)
 
 
-if __name__ == '__main__':
-    BASE.mkdir(parents=True, exist_ok=True)
-    _init_conn = db()
-    ensure_tables(_init_conn)
-    migrate_legacy(_init_conn)
-    ensure_runtime_migrations(_init_conn)
-    _init_conn.close()
-    threading.Thread(target=loop, daemon=True).start()
-    print(f'simJ reminder v3 structured listening on {HOST}:{PORT}', flush=True)
+def main():
+    init_db()
+    # fresh schema: ignore legacy tables/files — user requested clean approach
+    print(
+        "simJ E2EE cloud %s listening on %s:%s  db=%s  web=%s"
+        % (SERVICE_VERSION, HOST, PORT, DB, WEB_DIR),
+        flush=True,
+    )
     ThreadingHTTPServer((HOST, PORT), H).serve_forever()
+
+
+if __name__ == "__main__":
+    main()

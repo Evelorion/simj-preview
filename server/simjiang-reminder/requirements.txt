@@ -1,0 +1,2 @@
+# Zero hard dependencies for runtime.
+# Optional: cryptography was used by legacy server-side decrypt paths — no longer required for v6 E2EE.

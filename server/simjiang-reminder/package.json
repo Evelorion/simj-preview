@@ -1,0 +1,12 @@
+{
+  "name": "simj-cloud-deploy-tools",
+  "private": true,
+  "type": "commonjs",
+  "scripts": {
+    "deploy": "node deploy.js",
+    "verify": "node verify-remote.js"
+  },
+  "dependencies": {
+    "ssh2": "^1.17.0"
+  }
+}

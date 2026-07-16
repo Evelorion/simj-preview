@@ -1,0 +1,463 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>SIMJ 管理后台</title>
+  <style>
+    :root{
+      color-scheme:dark;
+      --bg:#050b15;
+      --panel:rgba(10,20,38,.88);
+      --line:rgba(255,255,255,.12);
+      --text:#f5f9ff;
+      --muted:#9eb0ca;
+      --accent:#5bd7ff;
+      --hot:#ff477e;
+    }
+    *{box-sizing:border-box}
+    body{
+      margin:0;min-height:100vh;font-family:Inter,system-ui,"Microsoft YaHei",sans-serif;color:var(--text);
+      background:
+        radial-gradient(circle at 15% 20%,rgba(38,111,255,.18),transparent 30%),
+        radial-gradient(circle at 85% 75%,rgba(255,71,126,.12),transparent 28%),
+        var(--bg);
+      padding:28px 18px 48px;
+    }
+    .wrap{max-width:920px;margin:0 auto}
+    h1{margin:0 0 6px;font-size:26px}
+    h2{margin:0 0 12px;font-size:18px}
+    h3{margin:18px 0 10px;font-size:15px}
+    .sub{color:var(--muted);margin:0 0 22px;font-size:14px;line-height:1.55}
+    .card{
+      background:var(--panel);border:1px solid var(--line);border-radius:20px;
+      padding:20px;box-shadow:0 18px 60px rgba(0,0,0,.35);backdrop-filter:blur(16px);
+      margin-bottom:16px;
+    }
+    label{display:block;font-size:12px;color:var(--muted);margin-bottom:6px}
+    input{
+      width:100%;padding:12px 14px;border-radius:12px;border:1px solid var(--line);
+      background:rgba(255,255,255,.06);color:#fff;font:inherit;margin-bottom:12px;outline:0;
+    }
+    button{
+      border:0;border-radius:12px;padding:12px 16px;font-weight:800;cursor:pointer;font:inherit;
+      background:linear-gradient(135deg,var(--accent),#806bff);color:#fff;
+    }
+    button.ghost{background:rgba(255,255,255,.08);border:1px solid var(--line);color:#dbe7f5}
+    button.warn{background:rgba(255,71,126,.18);border:1px solid rgba(255,71,126,.3);color:#ffd0dc}
+    button:disabled{opacity:.45;cursor:not-allowed}
+    .row{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+    .msg{min-height:20px;color:var(--accent);font-size:13px;margin:8px 0;white-space:pre-wrap}
+    .msg.err{color:#ff8eaa}
+    .hidden{display:none!important}
+    .chip{display:inline-flex;padding:6px 10px;border-radius:999px;background:rgba(91,215,255,.15);color:#bdefff;font-size:12px;font-weight:800}
+    .chip.off{background:rgba(255,255,255,.08);color:#9eb0ca}
+    .chip.on{background:rgba(80,220,140,.18);color:#9dffc0}
+    table{width:100%;border-collapse:collapse;font-size:13px}
+    th,td{text-align:left;padding:10px 8px;border-bottom:1px solid rgba(255,255,255,.08)}
+    th{color:var(--muted);font-weight:600;font-size:12px}
+    a.link{color:#9edfff;text-decoration:none}
+    a.link:hover{text-decoration:underline}
+    .stat{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
+    .stat div{background:rgba(255,255,255,.05);border:1px solid var(--line);border-radius:14px;padding:14px}
+    .stat strong{display:block;font-size:22px;margin-top:4px}
+    .stat span{color:var(--muted);font-size:12px}
+    .mono{font-family:ui-monospace,Consolas,monospace;font-size:12px;word-break:break-all;background:rgba(0,0,0,.25);padding:10px 12px;border-radius:10px;border:1px solid var(--line)}
+    .sec-box{background:rgba(0,0,0,.22);border:1px solid var(--line);border-radius:16px;padding:14px;margin-top:12px}
+    .sec-box .head{display:flex;justify-content:space-between;gap:10px;align-items:flex-start;flex-wrap:wrap}
+    td.actions{min-width:190px}
+    td.actions .row{gap:6px;flex-wrap:nowrap}
+    td.actions button{padding:7px 9px;border-radius:9px;font-size:12px;font-weight:700}
+    @media(max-width:640px){.stat{grid-template-columns:1fr}td.actions .row{flex-wrap:wrap}}
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>SIMJ 管理后台</h1>
+    <p class="sub">管理员登录 · 注册开关 · 2FA · 账户管理（无法查看用户号码明文）</p>
+
+    <div id="msg" class="msg"></div>
+
+    <section id="login-card" class="card">
+      <h2>管理员登录</h2>
+      <label>用户名</label>
+      <input id="user" autocomplete="username" placeholder="管理员用户名">
+      <label>密码</label>
+      <input id="pass" type="password" autocomplete="current-password" placeholder="密码">
+      <div id="factor-box" class="hidden">
+        <label id="totp-label">2FA 验证码（验证器 6 位）</label>
+        <input id="totp" inputmode="numeric" autocomplete="one-time-code" placeholder="123456" class="hidden">
+      </div>
+      <div class="row">
+        <button id="btn-login" type="button">登录</button>
+        <a class="link" href="/">← 返回用户地图</a>
+      </div>
+      <p class="sub" style="margin-top:14px;margin-bottom:0">
+        第一个注册的账户自动成为 <strong>owner</strong>。2FA 默认关闭；开启后登录必须额外验证。
+      </p>
+    </section>
+
+    <section id="dash" class="card hidden">
+      <div class="row" style="justify-content:space-between;margin-bottom:14px">
+        <div>
+          <h2 style="margin:0" id="who">管理员</h2>
+          <p class="sub" style="margin:4px 0 0" id="role-line">—</p>
+        </div>
+        <div class="row">
+          <a class="link" href="/">用户地图</a>
+          <button id="btn-logout" class="ghost" type="button">退出</button>
+        </div>
+      </div>
+
+      <div class="stat" style="margin-bottom:16px">
+        <div><span>账户数</span><strong id="stat-users">0</strong></div>
+        <div><span>注册状态</span><strong id="stat-reg" style="font-size:16px">—</strong></div>
+        <div><span>角色</span><strong id="stat-role" style="font-size:16px">—</strong></div>
+      </div>
+
+      <div class="card" style="margin:0;padding:14px;background:rgba(0,0,0,.2)">
+        <div class="row" style="justify-content:space-between">
+          <div>
+            <strong>用户注册开关</strong>
+            <p class="sub" style="margin:4px 0 0" id="reg-desc">读取中…</p>
+          </div>
+          <button id="btn-toggle" class="ghost" type="button">切换</button>
+        </div>
+      </div>
+
+      <h3>登录安全（默认关闭）</h3>
+      <p class="sub" style="margin-top:0">开启后，管理员登录除账号密码外，还须输入验证器 6 位码。普通用户登录不受影响。</p>
+
+      <div class="sec-box">
+        <div class="head">
+          <div>
+            <strong>2FA（TOTP 验证器）</strong>
+            <p class="sub" style="margin:4px 0 0" id="2fa-desc">—</p>
+          </div>
+          <span id="2fa-chip" class="chip off">关闭</span>
+        </div>
+        <div class="row" style="margin-top:10px">
+          <button id="btn-2fa-begin" class="ghost" type="button">生成 / 重新绑定</button>
+          <button id="btn-2fa-enable" class="ghost" type="button">开启校验</button>
+          <button id="btn-2fa-disable" class="warn" type="button">关闭校验</button>
+        </div>
+        <div id="2fa-setup" class="hidden" style="margin-top:12px">
+          <label>把 2FA 密钥保存到验证器（只显示一次流程）</label>
+          <div id="2fa-secret" class="mono">—</div>
+          <p class="sub" style="margin:8px 0">otpauth：</p>
+          <div id="2fa-otpauth" class="mono">—</div>
+          <label style="margin-top:12px">输入验证器当前 6 位码确认启用</label>
+          <input id="2fa-confirm-code" inputmode="numeric" placeholder="123456">
+          <button id="btn-2fa-confirm" type="button">确认并启用 2FA</button>
+        </div>
+        <div style="margin-top:10px">
+          <label>关闭 2FA 时填写当前管理员密码</label>
+          <input id="2fa-off-pass" type="password" placeholder="当前密码">
+        </div>
+      </div>
+
+      <div class="sec-box">
+        <strong>修改管理员用户名</strong>
+        <label style="margin-top:10px">当前管理员用户名</label>
+        <input id="admin-username" autocomplete="username" placeholder="管理员用户名">
+        <button id="btn-admin-username" class="ghost" type="button">更新用户名</button>
+        <p class="sub" style="margin:8px 0 0">只修改账号名称；服务器不会解密或重写云端加密包。</p>
+      </div>
+
+      <div class="sec-box">
+        <strong>修改管理员密码</strong>
+        <label style="margin-top:10px">当前密码</label>
+        <input id="pwd-old" type="password" autocomplete="current-password">
+        <label>新密码（至少 8 位）</label>
+        <input id="pwd-new" type="password" autocomplete="new-password">
+        <button id="btn-pwd" type="button">更新密码</button>
+      </div>
+
+      <h3>账户列表</h3>
+      <div style="overflow:auto">
+        <table>
+          <thead>
+            <tr>
+              <th>用户名</th>
+              <th>角色</th>
+              <th>卡数量*</th>
+              <th>状态</th>
+              <th>操作</th>
+            </tr>
+          </thead>
+          <tbody id="users-body"></tbody>
+        </table>
+      </div>
+      <p class="sub" style="margin-top:10px;margin-bottom:0">* 卡数量来自客户端上报的覆盖统计，服务器无法解密号码内容。</p>
+    </section>
+  </div>
+
+  <script>
+    const $ = (id) => document.getElementById(id);
+    const msg = (t, err=false) => { const el=$('msg'); el.textContent=t||''; el.classList.toggle('err',!!err); };
+    const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+
+    async function api(method, path, body) {
+      const res = await fetch(path, {
+        method,
+        credentials: 'include',
+        headers: body ? { 'Content-Type': 'application/json' } : {},
+        body: body ? JSON.stringify(body) : undefined,
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || data.ok === false) {
+        const err = new Error(data.message || data.error || `HTTP ${res.status}`);
+        err.data = data;
+        err.status = res.status;
+        throw err;
+      }
+      return data;
+    }
+
+    let settings = { allowRegistration: true, users: 0 };
+    let security = { admin2faEnabled: false };
+    let currentAccountId = '';
+
+    function setChip(el, on) {
+      el.textContent = on ? '已开启' : '关闭';
+      el.className = 'chip ' + (on ? 'on' : 'off');
+    }
+
+    function renderSecurity() {
+      setChip($('2fa-chip'), !!security.admin2faEnabled);
+      $('2fa-desc').textContent = security.admin2faEnabled
+        ? '登录必须输入验证器 6 位码'
+        : (security.admin2faConfigured ? '已配置密钥，但校验开关关闭' : '未配置 · 默认不要求 2FA');
+    }
+
+    function renderSettings() {
+      const on = settings.allowRegistration !== false;
+      $('stat-users').textContent = settings.users || 0;
+      $('stat-reg').textContent = on ? '允许注册' : '已关闭';
+      $('reg-desc').textContent = on
+        ? `当前允许新用户注册 · 共 ${settings.users || 0} 个账户`
+        : `已暂停新用户注册 · 共 ${settings.users || 0} 个账户`;
+      const btn = $('btn-toggle');
+      btn.textContent = on ? '暂停注册' : '允许注册';
+      btn.className = on ? 'warn' : 'ghost';
+    }
+
+    function renderUsers(list) {
+      const tb = $('users-body');
+      tb.innerHTML = '';
+      (list || []).forEach((u) => {
+        const tr = document.createElement('tr');
+        const isSelf = u.id && u.id === currentAccountId;
+        const enabled = !!u.enabled;
+        const nextAction = enabled ? 'disable' : 'enable';
+        tr.innerHTML = `
+          <td>${esc(u.username || '')}</td>
+          <td><span class="chip">${esc((u.role || 'user').toUpperCase())}</span></td>
+          <td>${u.records || 0}</td>
+          <td><span class="chip ${enabled ? 'on' : 'off'}">${enabled ? '启用' : '禁用'}</span></td>
+          <td class="actions">
+            <div class="row">
+              <button class="ghost" type="button" data-action="rename" data-id="${esc(u.id)}" data-username="${esc(u.username || '')}">改名</button>
+              <button class="${enabled ? 'warn' : 'ghost'}" type="button" data-action="${nextAction}" data-id="${esc(u.id)}" data-username="${esc(u.username || '')}" ${isSelf ? 'disabled' : ''}>${enabled ? '停用' : '启用'}</button>
+              <button class="warn" type="button" data-action="delete" data-id="${esc(u.id)}" data-username="${esc(u.username || '')}" ${isSelf ? 'disabled' : ''}>删除</button>
+            </div>
+          </td>`;
+        tb.appendChild(tr);
+      });
+      if (!(list || []).length) {
+        tb.innerHTML = '<tr><td colspan="5" style="color:#9eb0ca">暂无账户</td></tr>';
+      }
+    }
+
+    function applyLoginFlags(flags) {
+      const need2 = !!flags.admin2faEnabled;
+      $('factor-box').classList.toggle('hidden', !need2);
+      $('totp').classList.toggle('hidden', !need2);
+      $('totp-label').classList.toggle('hidden', !need2);
+    }
+
+    async function loadLoginFlags() {
+      try {
+        const f = await api('GET', '/api/admin/login-flags');
+        applyLoginFlags(f);
+      } catch (_) {
+        applyLoginFlags({ admin2faEnabled: false });
+      }
+    }
+
+    async function loadDash() {
+      const me = await api('GET', '/api/account/me');
+      if (!me.canAdmin) throw new Error('当前登录账户不是管理员');
+      $('login-card').classList.add('hidden');
+      $('dash').classList.remove('hidden');
+      currentAccountId = me.accountId || '';
+      $('who').textContent = me.username || '管理员';
+      $('admin-username').value = me.username || '';
+      $('role-line').textContent = `角色：${me.role} · 端到端加密后端`;
+      $('stat-role').textContent = String(me.role || '').toUpperCase();
+      settings = { ...settings, ...(me.serverSettings || {}) };
+      security = {
+        admin2faEnabled: !!(me.serverSettings && me.serverSettings.admin2faEnabled),
+        admin2faConfigured: false,
+      };
+      renderSettings();
+      try {
+        const sec = await api('GET', '/api/admin/security');
+        security = { ...security, ...sec };
+      } catch (_) {}
+      renderSecurity();
+      const data = await api('GET', '/api/admin/users');
+      const list = Array.isArray(data.users) ? data.users : [];
+      settings = {
+        ...settings,
+        allowRegistration: data.allowRegistration !== undefined ? data.allowRegistration : settings.allowRegistration,
+        users: data.userCount != null ? data.userCount : list.length,
+      };
+      renderSettings();
+      renderUsers(list);
+    }
+
+    $('btn-login').onclick = async () => {
+      try {
+        msg('');
+        const username = $('user').value.trim();
+        const password = $('pass').value;
+        if (!username || password.length < 8) throw new Error('请输入用户名和至少 8 位密码');
+        await api('POST', '/api/admin/login', {
+          username,
+          password,
+          totp: $('totp').value.trim(),
+        });
+        await loadDash();
+        msg('管理员登录成功');
+      } catch (e) {
+        const d = e.data || {};
+        if (d.need2fa) {
+          applyLoginFlags({
+            admin2faEnabled: !!d.need2fa || !$('totp').classList.contains('hidden'),
+          });
+          if (d.need2fa) $('totp').classList.remove('hidden');
+          $('factor-box').classList.remove('hidden');
+        }
+        msg(e.message || String(e), true);
+      }
+    };
+
+    $('btn-toggle').onclick = async () => {
+      try {
+        const next = settings.allowRegistration === false;
+        const data = await api('POST', '/api/admin/settings', { allowRegistration: next });
+        settings = { ...settings, ...data };
+        renderSettings();
+        msg(next ? '已允许新用户注册' : '已暂停新用户注册');
+      } catch (e) {
+        msg(e.message || String(e), true);
+      }
+    };
+
+    $('users-body').onclick = async (ev) => {
+      const btn = ev.target && ev.target.closest ? ev.target.closest('button[data-action]') : null;
+      if (!btn || btn.disabled) return;
+      const action = btn.dataset.action;
+      const accountId = btn.dataset.id;
+      const username = btn.dataset.username || '';
+      try {
+        msg('');
+        if (action === 'rename') {
+          const next = (prompt('修改用户名', username) || '').trim();
+          if (!next || next === username) return;
+          const data = await api('POST', '/api/admin/users', { action: 'rename', accountId, username: next });
+          msg(data.message || '用户名已修改');
+          await loadDash();
+          return;
+        }
+        if (action === 'enable' || action === 'disable') {
+          const enabled = action === 'enable';
+          if (!confirm(`${enabled ? '启用' : '停用'}账户 ${username}？`)) return;
+          const data = await api('POST', '/api/admin/users', { action: 'set_enabled', accountId, enabled });
+          msg(data.message || (enabled ? '账户已启用' : '账户已停用'));
+          await loadDash();
+          return;
+        }
+        if (action === 'delete') {
+          if (!confirm(`删除账户 ${username}？云端加密包、备份和登录会话都会清理。`)) return;
+          const data = await api('POST', '/api/admin/users', { action: 'delete', accountId });
+          msg(data.message || '账户已删除');
+          await loadDash();
+        }
+      } catch (e) {
+        msg(e.message || String(e), true);
+      }
+    };
+
+    $('btn-admin-username').onclick = async () => {
+      try {
+        const username = $('admin-username').value.trim();
+        if (!currentAccountId) throw new Error('当前管理员账户 ID 读取失败，请重新登录');
+        if (!username) throw new Error('请输入新的管理员用户名');
+        const data = await api('POST', '/api/admin/users', { action: 'rename', accountId: currentAccountId, username });
+        msg(data.message || '管理员用户名已更新');
+        await loadDash();
+      } catch (e) {
+        msg(e.message || String(e), true);
+      }
+    };
+
+    async function secAction(body) {
+      const data = await api('POST', '/api/admin/security', body);
+      security = { ...security, ...data };
+      renderSecurity();
+      return data;
+    }
+
+    $('btn-2fa-begin').onclick = async () => {
+      try {
+        const data = await secAction({ action: '2fa_begin' });
+        $('2fa-setup').classList.remove('hidden');
+        $('2fa-secret').textContent = data.secret || '—';
+        $('2fa-otpauth').textContent = data.otpauth || '—';
+        msg('已生成 2FA 密钥：请写入验证器，再用 6 位码确认');
+      } catch (e) { msg(e.message || String(e), true); }
+    };
+    $('btn-2fa-confirm').onclick = async () => {
+      try {
+        await secAction({ action: '2fa_confirm', totp: $('2fa-confirm-code').value.trim() });
+        $('2fa-setup').classList.add('hidden');
+        msg('2FA 已启用');
+      } catch (e) { msg(e.message || String(e), true); }
+    };
+    $('btn-2fa-enable').onclick = async () => {
+      try { await secAction({ action: '2fa_enable' }); msg('已开启 2FA 登录校验'); }
+      catch (e) { msg(e.message || String(e), true); }
+    };
+    $('btn-2fa-disable').onclick = async () => {
+      try {
+        await secAction({ action: '2fa_disable', password: $('2fa-off-pass').value, wipeSecret: false });
+        $('2fa-off-pass').value = '';
+        msg('已关闭 2FA 登录校验');
+      } catch (e) { msg(e.message || String(e), true); }
+    };
+
+    $('btn-pwd').onclick = async () => {
+      try {
+        await secAction({
+          action: 'change_password',
+          oldPassword: $('pwd-old').value,
+          newPassword: $('pwd-new').value,
+        });
+        $('pwd-old').value = '';
+        $('pwd-new').value = '';
+        msg('管理员密码已更新');
+      } catch (e) { msg(e.message || String(e), true); }
+    };
+
+    $('btn-logout').onclick = async () => {
+      try { await api('POST', '/api/account/logout', {}); } catch (_) {}
+      location.reload();
+    };
+
+    loadLoginFlags();
+    loadDash().catch(() => {});
+  </script>
+</body>
+</html>

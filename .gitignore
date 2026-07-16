@@ -1,7 +1,19 @@
 .gradle/
+node_modules/
+server/simjiang-reminder/node_modules/
+server/simjiang-reminder/.local-data/
+server/simjiang-reminder/data.db*
+server/simjiang-reminder/backups/
+server/simjiang-reminder/*.tgz
+server/simjiang-reminder/web-static.tgz
+*.sqlite
+*.sqlite3
 build/
 */build/
 local.properties
+.env
+.env.*
+signing.properties
 *.iml
 .DS_Store
 .idea/
@@ -13,11 +25,3 @@ local.properties
 *.keystore
 apksigner.jar
 *.bak
-
-# Core module source code (closed source)
-core/src/
-core/build/
-core/libs/
-
-# Keep AAR file
-!app/libs/core-release.aar

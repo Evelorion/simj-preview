@@ -1,0 +1,697 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>simJ 3D 地球 · eSIM</title>
+  <script src="/vendor/globe.gl.js?v=3d7"></script>
+  <style>
+    body {
+      margin: 0;
+      padding: 0;
+      overflow: hidden;
+      background-color: #030408;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+    }
+    #globeViz { width: 100vw; height: 100vh; }
+
+    /* 顶部独立控制已并入右上云端面板 */
+    #controls { display: none !important; }
+    .base-panel {
+      background: rgba(15, 18, 25, 0.6);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+      padding: 15px 20px;
+      border-radius: 12px;
+      color: white;
+      box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.5);
+      width: 220px;
+    }
+    .tip-text {
+      margin-top: 12px;
+      font-size: 11px;
+      color: #9ca3af;
+      line-height: 1.5;
+      border-top: 1px solid rgba(255,255,255,0.1);
+      padding-top: 10px;
+    }
+    button.toggle-btn {
+      width: 100%;
+      background: rgba(255, 255, 255, 0.1);
+      border: 1px solid rgba(255, 255, 255, 0.2);
+      color: #fff;
+      padding: 8px 0;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 13px;
+      transition: all 0.2s ease;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      gap: 8px;
+    }
+    button.toggle-btn:hover { background: rgba(255, 255, 255, 0.2); }
+
+    #profilePanel {
+      display: none;
+      position: absolute;
+      bottom: 40px;
+      left: 40px;
+      width: 380px;
+      background: #0a0c12;
+      border-radius: 24px;
+      border: 1px solid rgba(255, 255, 255, 0.14);
+      box-shadow: 0 20px 50px rgba(0, 0, 0, 0.7);
+      z-index: 20;
+      overflow: hidden;
+      color: #fff;
+      animation: slideIn 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+    }
+    @keyframes slideIn {
+      from { opacity: 0; transform: translateX(-20px); }
+      to { opacity: 1; transform: translateX(0); }
+    }
+    /* 整块背景 = 当前国家国旗 */
+    #panelAmbientBg {
+      position: absolute;
+      inset: 0;
+      background-size: cover;
+      background-position: center;
+      background-repeat: no-repeat;
+      z-index: 0;
+      pointer-events: none;
+      transform: scale(1.02);
+    }
+    /* 深色遮罩，保证文字可读，国旗仍清晰可见 */
+    #profilePanel::after {
+      content: "";
+      position: absolute;
+      inset: 0;
+      z-index: 0;
+      pointer-events: none;
+      background:
+        linear-gradient(180deg, rgba(6,10,18,.42) 0%, rgba(6,10,18,.62) 45%, rgba(6,10,18,.78) 100%),
+        rgba(8,12,20,.28);
+    }
+    .panel-content { position: relative; z-index: 1; padding: 25px; }
+    .panel-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 25px;
+    }
+    .header-title {
+      font-size: 12px;
+      letter-spacing: 1.5px;
+      color: #6ee7b7;
+      font-weight: 600;
+    }
+    .header-actions { display: flex; gap: 10px; }
+    .circle-icon {
+      width: 32px; height: 32px;
+      border-radius: 50%;
+      background: rgba(255, 255, 255, 0.08);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      display: flex; align-items: center; justify-content: center;
+      font-size: 12px; font-weight: bold; color: #ccc;
+      cursor: pointer; transition: all 0.2s;
+    }
+    .circle-icon:hover { background: rgba(255, 255, 255, 0.15); color: #fff; }
+    .title-area {
+      display: flex; align-items: center; gap: 18px; margin-bottom: 30px;
+    }
+    .flag-img {
+      width: 64px; height: 48px;
+      border-radius: 12px; object-fit: cover;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.4);
+      border: 1px solid rgba(255,255,255,0.1);
+    }
+    .country-names h2 {
+      margin: 0 0 4px 0; font-size: 28px; font-weight: 600;
+      text-shadow: 0 2px 4px rgba(0,0,0,0.5);
+    }
+    .country-names p { margin: 0; font-size: 14px; color: #aaa; }
+    .info-grid {
+      display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 12px;
+    }
+    .info-card {
+      background: rgba(8, 12, 20, 0.45);
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      border-radius: 16px; padding: 16px;
+      display: flex; flex-direction: column; justify-content: center;
+      backdrop-filter: blur(8px);
+      -webkit-backdrop-filter: blur(8px);
+    }
+    .info-card.full-width { grid-column: span 2; }
+    .card-label {
+      font-size: 11px; color: rgba(255,255,255,.72); margin-bottom: 6px; letter-spacing: 0.5px;
+    }
+    .card-value { font-size: 18px; font-weight: 600; color: #fff; text-shadow: 0 1px 8px rgba(0,0,0,.45); }
+    .card-subtext { font-size: 11px; color: rgba(255,255,255,.55); margin-top: 4px; }
+    .panel-footer { margin-top: 18px; font-size: 10px; color: rgba(255,255,255,.45); line-height: 1.5; }
+    .country-names h2 { text-shadow: 0 2px 10px rgba(0,0,0,.55); }
+    .country-names p { color: rgba(255,255,255,.78) !important; }
+
+    #loading {
+      position: absolute; top: 50%; left: 50%;
+      transform: translate(-50%, -50%);
+      color: #fff; font-size: 16px; pointer-events: none;
+      transition: opacity 0.5s;
+      background: rgba(0,0,0,0.6);
+      padding: 15px 30px; border-radius: 20px;
+      backdrop-filter: blur(5px);
+      text-align: center; line-height: 1.6; z-index: 30;
+    }
+
+    /* 云端面板样式以 simj-portal.js 为准（右上单栏折叠） */
+    .simj-admin-link { display: none !important; }
+    @media (max-width: 900px) {
+      #profilePanel {
+        bottom: calc(46vh + 20px);
+        left: 12px;
+        width: min(340px, calc(100vw - 24px));
+      }
+    }
+  </style>
+</head>
+<body>
+  <div id="controls">
+    <div class="base-panel">
+      <button class="toggle-btn" id="toggleBtn">⏸️ 暂停自转</button>
+      <div class="tip-text">
+        💡 控制已并入右上云端面板
+      </div>
+    </div>
+  </div>
+
+  <div id="profilePanel">
+    <div id="panelAmbientBg"></div>
+    <div class="panel-content">
+      <div class="panel-header">
+        <div class="header-title">GLOBAL PROFILE</div>
+        <div class="header-actions">
+          <div class="circle-icon" id="isoCircleIcon">—</div>
+          <div class="circle-icon" id="closePanelBtn">✕</div>
+        </div>
+      </div>
+      <div class="title-area">
+        <img id="flagImg" class="flag-img" src="" alt="flag"
+          onerror="this.src='data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII='">
+        <div class="country-names">
+          <h2 id="countryNameZh">—</h2>
+          <p id="countryNameEn">—</p>
+        </div>
+      </div>
+      <div class="info-grid">
+        <div class="info-card">
+          <div class="card-label">ISO CODE</div>
+          <div class="card-value" id="cardIsoCode">—</div>
+        </div>
+        <div class="info-card">
+          <div class="card-label">国际区号</div>
+          <div class="card-value" id="cardPhoneCode">—</div>
+        </div>
+        <div class="info-card full-width">
+          <div class="card-label">手机号码位数</div>
+          <div class="card-value" id="cardPhoneDigits">—</div>
+          <div class="card-subtext">不含国际区号</div>
+        </div>
+        <div class="info-card full-width" style="background: rgba(255,255,255,0.06);">
+          <div class="card-label">定位坐标</div>
+          <div class="card-value" id="cardCoords">—</div>
+        </div>
+        <div class="info-card full-width" id="esimCard" style="display:none;background:rgba(56,189,248,.12);border-color:rgba(56,189,248,.35);cursor:pointer;" title="点击查看该国号码卡片">
+          <div class="card-label">App 号码（已同步）· 点击查看</div>
+          <div class="card-value" id="cardEsim">—</div>
+          <div class="card-subtext" id="cardEsimHint">点此以卡片查看运营商与完整号码</div>
+        </div>
+      </div>
+      <div class="panel-footer">
+        边界为可视化简化数据，不作为法定或测绘依据。号码位数为常见手机号码长度参考。
+      </div>
+    </div>
+  </div>
+
+  <div id="loading">正在加载 110m 国家边界 + 卫星贴图…</div>
+  <div id="globeViz"></div>
+
+  <script>
+  (() => {
+    'use strict';
+
+    let hoverD = null;
+    let selectedD = null;
+    let countryFeatures = [];
+    let appIsoSet = new Set();   // App 有号码的国家
+    let esimIsoSet = new Set();  // 其中含 eSIM 的国家
+    let coverageMetaByIso = new Map(); // iso -> {esims, records, name}
+
+    const rendererConfig = {
+      antialias: false,
+      powerPreference: 'high-performance',
+      alpha: false
+    };
+
+    if (typeof Globe !== 'function') {
+      document.getElementById('loading').innerHTML = '⚠️ Globe 引擎加载失败';
+      throw new Error('Globe missing');
+    }
+
+    const world = Globe({ rendererConfig })(document.getElementById('globeViz'))
+      .globeImageUrl('https://unpkg.com/three-globe/example/img/earth-blue-marble.jpg')
+      .bumpImageUrl('https://unpkg.com/three-globe/example/img/earth-topology.png')
+      .showAtmosphere(true)
+      .atmosphereColor('#87ceeb')
+      .atmosphereAltitude(0.15)
+      .polygonsTransitionDuration(0);
+
+    const ambientLight = world.scene().children.find(o => o.type === 'AmbientLight');
+    if (ambientLight) ambientLight.intensity = 0.5;
+    const directionalLight = world.scene().children.find(o => o.type === 'DirectionalLight');
+    if (directionalLight) {
+      directionalLight.intensity = 1.2;
+      directionalLight.position.set(1, 1, 1);
+    }
+
+    function featIso(d) {
+      if (!d) return '';
+      if (d.__iso2) return String(d.__iso2).toUpperCase();
+      const p = d.properties || {};
+      let iso2 = p.ISO_A2 || p.ISO_A2_EH || p.WB_A2 || '';
+      if (!iso2 || iso2 === '-99') {
+        const name = p.ADMIN || p.NAME || '';
+        if (name === 'France') iso2 = 'FR';
+        else if (name === 'Norway') iso2 = 'NO';
+        else if (name === 'Kosovo') iso2 = 'XK';
+        else if (/taiwan/i.test(name)) iso2 = 'TW';
+      }
+      return String(iso2 || '').replace('-99', '').toUpperCase();
+    }
+
+    function isAppCountry(d) {
+      return appIsoSet.has(featIso(d));
+    }
+    function isEsim(d) {
+      return esimIsoSet.has(featIso(d));
+    }
+
+    function refreshPolygonStyles() {
+      if (!world) return;
+      world
+        .polygonAltitude(d => {
+          if (d === selectedD) return 0.012;
+          if (isEsim(d)) return 0.008;
+          if (isAppCountry(d)) return 0.006;
+          const iso = featIso(d);
+          if (iso === 'HK' || iso === 'MO') return 0.0025;
+          return 0.002;
+        })
+        .polygonCapColor(d => {
+          if (d === selectedD) return 'rgba(14, 165, 233, 0.62)';
+          if (d === hoverD) return 'rgba(255, 255, 255, 0.22)';
+          // eSIM 国家：亮蓝
+          if (isEsim(d)) return 'rgba(56, 189, 248, 0.58)';
+          // App 有号码的国家：次亮蓝
+          if (isAppCountry(d)) return 'rgba(96, 165, 250, 0.42)';
+          return 'rgba(255, 255, 255, 0.01)';
+        })
+        .polygonSideColor(d => {
+          if (d === selectedD || isEsim(d) || isAppCountry(d)) return 'rgba(2, 132, 199, 0.22)';
+          return 'rgba(0, 0, 0, 0)';
+        })
+        .polygonStrokeColor(d => {
+          if (d === selectedD) return 'rgba(186, 230, 253, 1)';
+          if (isEsim(d)) return 'rgba(125, 211, 252, 1)';
+          if (isAppCountry(d)) return 'rgba(147, 197, 253, 0.95)';
+          return 'rgba(255, 255, 255, 0.55)';
+        });
+    }
+
+    function featureCenter(d) {
+      if (d.__center && Number.isFinite(d.__center.lat)) return d.__center;
+      // bbox centroid fallback
+      try {
+        const geom = d.geometry;
+        const polys = geom.type === 'Polygon' ? [geom.coordinates] : (geom.coordinates || []);
+        let sx = 0, sy = 0, n = 0;
+        for (const poly of polys) {
+          const ring = poly[0] || [];
+          for (const p of ring) {
+            sx += p[0]; sy += p[1]; n++;
+          }
+        }
+        if (n) {
+          d.__center = { lng: sx / n, lat: sy / n };
+          return d.__center;
+        }
+      } catch (_) {}
+      return { lat: 20, lng: 10 };
+    }
+
+    function enrichFeatures(features) {
+      return features.map((f, i) => {
+        const iso2 = featIso(f);
+        f.__iso2 = iso2;
+        f.__iso3 = String((f.properties && (f.properties.ISO_A3 || f.properties.ADM0_A3)) || '').replace('-99', '').toUpperCase();
+        f.__nameEn = (f.properties && (f.properties.ADMIN || f.properties.NAME)) || iso2 || 'Unknown';
+        f.__index = i;
+        f.__center = featureCenter(f);
+        f.__key = f.__iso3 || f.__iso2 || f.__nameEn;
+        return f;
+      });
+    }
+
+    function selectFeature(d, fly = true, lat, lng) {
+      if (!d) return;
+      selectedD = d;
+      refreshPolygonStyles();
+      isRotating = false;
+      updateRotateBtn();
+      world.controls().autoRotate = false;
+
+      const c = featureCenter(d);
+      const la = Number.isFinite(lat) ? lat : c.lat;
+      const ln = Number.isFinite(lng) ? lng : c.lng;
+      const iso = featIso(d);
+      const zoomAlt = (iso === 'HK' || iso === 'MO') ? 0.3 : 0.8;
+      if (fly) world.pointOfView({ lat: la, lng: ln, altitude: zoomAlt }, 800);
+      updateProfilePanel(d, la, ln);
+    }
+
+    // ---- phone / panel (from 3d.html) ----
+    const regionNamesZh = (() => {
+      try { return new Intl.DisplayNames(['zh-CN'], { type: 'region' }); } catch (e) { return null; }
+    })();
+
+    const phoneDataDict = {
+      'CN': { c: '+86', d: '11' }, 'HK': { c: '+852', d: '8' }, 'MO': { c: '+853', d: '8' }, 'TW': { c: '+886', d: '9' },
+      'JP': { c: '+81', d: '11' }, 'KR': { c: '+82', d: '10' }, 'KP': { c: '+850', d: '10' }, 'MN': { c: '+976', d: '8' },
+      'VN': { c: '+84', d: '9' }, 'TH': { c: '+66', d: '9' }, 'MY': { c: '+60', d: '9' }, 'SG': { c: '+65', d: '8' },
+      'ID': { c: '+62', d: '10-12' }, 'PH': { c: '+63', d: '10' }, 'MM': { c: '+95', d: '9' }, 'KH': { c: '+855', d: '9' },
+      'LA': { c: '+856', d: '8' }, 'BN': { c: '+673', d: '7' }, 'TL': { c: '+670', d: '8' },
+      'IN': { c: '+91', d: '10' }, 'PK': { c: '+92', d: '10' }, 'BD': { c: '+880', d: '10' }, 'LK': { c: '+94', d: '9' },
+      'NP': { c: '+977', d: '10' }, 'MV': { c: '+960', d: '7' }, 'BT': { c: '+975', d: '8' },
+      'AF': { c: '+93', d: '9' }, 'IR': { c: '+98', d: '10' }, 'IQ': { c: '+964', d: '10' }, 'SY': { c: '+963', d: '9' },
+      'LB': { c: '+961', d: '8' }, 'JO': { c: '+962', d: '9' }, 'IL': { c: '+972', d: '9' }, 'PS': { c: '+970', d: '9' },
+      'SA': { c: '+966', d: '9' }, 'YE': { c: '+967', d: '9' }, 'OM': { c: '+968', d: '8' }, 'AE': { c: '+971', d: '9' },
+      'QA': { c: '+974', d: '8' }, 'KW': { c: '+965', d: '8' }, 'BH': { c: '+973', d: '8' }, 'TR': { c: '+90', d: '10' },
+      'CY': { c: '+357', d: '8' }, 'AZ': { c: '+994', d: '9' }, 'GE': { c: '+995', d: '9' }, 'AM': { c: '+374', d: '8' },
+      'UZ': { c: '+998', d: '9' }, 'KZ': { c: '+7', d: '10' }, 'TM': { c: '+993', d: '8' }, 'TJ': { c: '+992', d: '9' },
+      'KG': { c: '+996', d: '9' },
+      'GB': { c: '+44', d: '10' }, 'FR': { c: '+33', d: '9' }, 'DE': { c: '+49', d: '10-11' }, 'IT': { c: '+39', d: '10' },
+      'ES': { c: '+34', d: '9' }, 'PT': { c: '+351', d: '9' }, 'NL': { c: '+31', d: '9' }, 'BE': { c: '+32', d: '9' },
+      'LU': { c: '+352', d: '9' }, 'CH': { c: '+41', d: '9' }, 'AT': { c: '+43', d: '10' }, 'IE': { c: '+353', d: '9' },
+      'DK': { c: '+45', d: '8' }, 'NO': { c: '+47', d: '8' }, 'SE': { c: '+46', d: '9' }, 'FI': { c: '+358', d: '9' },
+      'IS': { c: '+354', d: '7' }, 'EE': { c: '+372', d: '7-8' }, 'LV': { c: '+371', d: '8' }, 'LT': { c: '+370', d: '8' },
+      'RU': { c: '+7', d: '10' }, 'BY': { c: '+375', d: '9' }, 'UA': { c: '+380', d: '9' }, 'MD': { c: '+373', d: '8' },
+      'PL': { c: '+48', d: '9' }, 'CZ': { c: '+420', d: '9' }, 'SK': { c: '+421', d: '9' }, 'HU': { c: '+36', d: '9' },
+      'RO': { c: '+40', d: '9' }, 'BG': { c: '+359', d: '9' }, 'GR': { c: '+30', d: '10' }, 'AL': { c: '+355', d: '9' },
+      'MK': { c: '+389', d: '8' }, 'RS': { c: '+381', d: '9' }, 'ME': { c: '+382', d: '8' }, 'BA': { c: '+387', d: '8' },
+      'HR': { c: '+385', d: '9' }, 'SI': { c: '+386', d: '8' }, 'MT': { c: '+356', d: '8' },
+      'AD': { c: '+376', d: '6' }, 'MC': { c: '+377', d: '8' }, 'SM': { c: '+378', d: '10' }, 'VA': { c: '+379', d: '10' }, 'LI': { c: '+423', d: '7' },
+      'US': { c: '+1', d: '10' }, 'CA': { c: '+1', d: '10' }, 'MX': { c: '+52', d: '10' }, 'GT': { c: '+502', d: '8' },
+      'BZ': { c: '+501', d: '7' }, 'SV': { c: '+503', d: '8' }, 'HN': { c: '+504', d: '8' }, 'NI': { c: '+505', d: '8' },
+      'CR': { c: '+506', d: '8' }, 'PA': { c: '+507', d: '8' }, 'BS': { c: '+1', d: '10' }, 'CU': { c: '+53', d: '8' },
+      'JM': { c: '+1', d: '10' }, 'HT': { c: '+509', d: '8' }, 'DO': { c: '+1', d: '10' }, 'PR': { c: '+1', d: '10' },
+      'CO': { c: '+57', d: '10' }, 'VE': { c: '+58', d: '10' }, 'GY': { c: '+592', d: '7' }, 'SR': { c: '+597', d: '7' },
+      'EC': { c: '+593', d: '9' }, 'PE': { c: '+51', d: '9' }, 'BR': { c: '+55', d: '11' }, 'BO': { c: '+591', d: '8' },
+      'PY': { c: '+595', d: '9' }, 'CL': { c: '+56', d: '9' }, 'AR': { c: '+54', d: '10' }, 'UY': { c: '+598', d: '9' },
+      'EG': { c: '+20', d: '10' }, 'LY': { c: '+218', d: '9' }, 'TN': { c: '+216', d: '8' }, 'DZ': { c: '+213', d: '9' },
+      'MA': { c: '+212', d: '9' }, 'SD': { c: '+249', d: '9' }, 'SS': { c: '+211', d: '9' }, 'EH': { c: '+212', d: '9' },
+      'MR': { c: '+222', d: '8' }, 'ML': { c: '+223', d: '8' }, 'SN': { c: '+221', d: '9' }, 'GM': { c: '+220', d: '7' },
+      'GW': { c: '+245', d: '7' }, 'GN': { c: '+224', d: '9' }, 'SL': { c: '+232', d: '8' }, 'LR': { c: '+231', d: '8-9' },
+      'CI': { c: '+225', d: '10' }, 'BF': { c: '+226', d: '8' }, 'GH': { c: '+233', d: '9' }, 'TG': { c: '+228', d: '8' },
+      'BJ': { c: '+229', d: '8' }, 'NE': { c: '+227', d: '8' }, 'NG': { c: '+234', d: '10' }, 'CM': { c: '+237', d: '9' },
+      'GQ': { c: '+240', d: '9' }, 'GA': { c: '+241', d: '7' }, 'CG': { c: '+242', d: '9' }, 'CD': { c: '+243', d: '9' },
+      'AO': { c: '+244', d: '9' }, 'CF': { c: '+236', d: '8' }, 'TD': { c: '+235', d: '8' }, 'ER': { c: '+291', d: '7' },
+      'DJ': { c: '+253', d: '8' }, 'ET': { c: '+251', d: '9' }, 'SO': { c: '+252', d: '8' }, 'KE': { c: '+254', d: '9' },
+      'UG': { c: '+256', d: '9' }, 'RW': { c: '+250', d: '9' }, 'BI': { c: '+257', d: '8' }, 'TZ': { c: '+255', d: '9' },
+      'MZ': { c: '+258', d: '9' }, 'MW': { c: '+265', d: '9' }, 'ZM': { c: '+260', d: '9' }, 'ZW': { c: '+263', d: '9' },
+      'MG': { c: '+261', d: '9' }, 'ZA': { c: '+27', d: '9' }, 'LS': { c: '+266', d: '8' }, 'SZ': { c: '+268', d: '8' },
+      'BW': { c: '+267', d: '8' }, 'NA': { c: '+264', d: '9' }, 'MU': { c: '+230', d: '8' }, 'SC': { c: '+248', d: '7' },
+      'AU': { c: '+61', d: '9' }, 'NZ': { c: '+64', d: '9' }, 'PG': { c: '+675', d: '8' }, 'SB': { c: '+677', d: '7' },
+      'VU': { c: '+678', d: '7' }, 'FJ': { c: '+679', d: '7' }, 'WS': { c: '+685', d: '7' }, 'TO': { c: '+676', d: '7' },
+      'FM': { c: '+691', d: '7' }, 'MH': { c: '+692', d: '7' }, 'PW': { c: '+680', d: '7' }
+    };
+
+    function updateProfilePanel(d, lat, lng) {
+      const props = d.properties || {};
+      let nameEn = props.ADMIN || props.NAME || d.__nameEn || 'Unknown Region';
+      let iso2 = featIso(d);
+      let iso3 = d.__iso3 || props.ISO_A3 || props.ISO_A3_EH || props.WB_A3 || props.ADM0_A3 || '';
+      iso3 = String(iso3).replace('-99', '') || 'N/A';
+
+      let nameZh = nameEn;
+      if (iso2 && regionNamesZh) {
+        try { nameZh = regionNamesZh.of(iso2) || nameEn; } catch (e) {}
+      }
+      // 角标用小图；面板整块背景用大图。优先本地 /assets/flags，失败再 CDN
+      const isoLow = iso2 ? iso2.toLowerCase() : '';
+      const localFlag = iso2 ? `/assets/flags/${iso2}.png` : '';
+      let flagThumb = iso2 ? (localFlag || `https://flagcdn.com/w160/${isoLow}.png`) : '';
+      let flagBg = iso2
+        ? (localFlag || `https://flagcdn.com/w640/${isoLow}.png`)
+        : '';
+
+      if (iso2 === 'TW' || /taiwan/i.test(nameEn)) {
+        nameZh = '中国台湾省';
+        nameEn = 'Taiwan Province of China';
+        flagThumb = localFlag || `https://flagcdn.com/w160/tw.png`;
+        flagBg = localFlag || `https://flagcdn.com/w640/tw.png`;
+      } else if (iso2 === 'HK') {
+        nameZh = '中国香港特别行政区';
+        nameEn = 'Hong Kong SAR, China';
+      } else if (iso2 === 'MO') {
+        nameZh = '中国澳门特别行政区';
+        nameEn = 'Macao SAR, China';
+      }
+
+      const data = phoneDataDict[iso2];
+      document.getElementById('isoCircleIcon').innerText = iso2 || '🌍';
+      const flagImgEl = document.getElementById('flagImg');
+      flagImgEl.onerror = function () {
+        if (isoLow && !this.dataset.cdn) {
+          this.dataset.cdn = '1';
+          this.src = `https://flagcdn.com/w160/${isoLow}.png`;
+          document.getElementById('panelAmbientBg').style.backgroundImage =
+            `url(https://flagcdn.com/w640/${isoLow}.png)`;
+        }
+      };
+      delete flagImgEl.dataset.cdn;
+      flagImgEl.src = flagThumb;
+      document.getElementById('countryNameZh').innerText = nameZh;
+      document.getElementById('countryNameEn').innerText = nameEn;
+      document.getElementById('cardIsoCode').innerText = iso3;
+      document.getElementById('cardPhoneCode').innerText = data ? data.c : '未收录';
+      document.getElementById('cardPhoneDigits').innerText = data ? (data.d + '位') : '未知';
+
+      const latStr = Math.abs(lat).toFixed(2) + '°' + (lat >= 0 ? 'N' : 'S');
+      const lngStr = Math.abs(lng).toFixed(2) + '°' + (lng >= 0 ? 'E' : 'W');
+      document.getElementById('cardCoords').innerText =
+        `${lat.toFixed(2)}°, ${lng.toFixed(2)}° (${latStr}, ${lngStr})`;
+      // 每个国家面板背景 = 该国国旗
+      document.getElementById('panelAmbientBg').style.backgroundImage = flagBg ? `url(${flagBg})` : 'none';
+
+      // App coverage badge — click opens number cards (portal)
+      const meta = coverageMetaByIso.get(iso2);
+      const portalCards = (typeof window.SIMJ_PORTAL?.getRecordsByIso === 'function')
+        ? window.SIMJ_PORTAL.getRecordsByIso(iso2)
+        : [];
+      const esimCard = document.getElementById('esimCard');
+      const rc = portalCards.length || Number(meta?.records || 0);
+      const es = portalCards.filter(c => c.esim).length || Number(meta?.esims || 0);
+      if (rc > 0 || (meta && (Number(meta.esims || 0) > 0 || Number(meta.records || 0) > 0))) {
+        esimCard.style.display = 'flex';
+        document.getElementById('cardEsim').innerText =
+          es > 0 ? `${rc} 张卡 · ${es} 张 eSIM（App 已同步）` : `${rc} 张卡（App 已同步）`;
+        const hint = document.getElementById('cardEsimHint');
+        if (hint) {
+          const sample = portalCards[0];
+          hint.innerText = sample
+            ? `点此查看 · 如 ${sample.op || '运营商'} ${sample.display || ''}`.trim()
+            : '点此以卡片查看运营商与完整号码';
+        }
+      } else {
+        esimCard.style.display = 'none';
+      }
+
+      document.getElementById('profilePanel').style.display = 'block';
+    }
+
+    document.getElementById('closePanelBtn').addEventListener('click', () => {
+      document.getElementById('profilePanel').style.display = 'none';
+      selectedD = null;
+      refreshPolygonStyles();
+    });
+
+    // ---- load countries ----
+    const DATA_URL = 'https://cdn.jsdelivr.net/gh/vasturiano/globe.gl@master/example/datasets/ne_110m_admin_0_countries.geojson';
+    // Prefer VPS local copy if present
+    const LOCAL_DATA = '/data/countries.geojson';
+
+    function injectHkMo(features) {
+      features.push({
+        type: 'Feature',
+        properties: { ISO_A2: 'HK', ISO_A3: 'HKG', NAME: 'Hong Kong', ADMIN: 'Hong Kong' },
+        geometry: {
+          type: 'Polygon',
+          coordinates: [[[113.86, 22.20], [113.90, 22.50], [114.20, 22.55], [114.40, 22.50], [114.36, 22.20], [113.86, 22.20]]]
+        }
+      });
+      features.push({
+        type: 'Feature',
+        properties: { ISO_A2: 'MO', ISO_A3: 'MAC', NAME: 'Macau', ADMIN: 'Macau' },
+        geometry: {
+          type: 'Polygon',
+          coordinates: [[[113.53, 22.10], [113.53, 22.20], [113.58, 22.20], [113.58, 22.10], [113.53, 22.10]]]
+        }
+      });
+      return features;
+    }
+
+    function onCountriesReady(countries) {
+      document.getElementById('loading').style.opacity = '0';
+      setTimeout(() => { document.getElementById('loading').style.display = 'none'; }, 500);
+
+      if (!countries.features) countries = { type: 'FeatureCollection', features: countries.features || countries };
+
+      // avoid double HK/MO if local data already has them
+      const hasHk = countries.features.some(f => featIso(f) === 'HK');
+      if (!hasHk) injectHkMo(countries.features);
+
+      countryFeatures = enrichFeatures(countries.features);
+
+      world
+        .polygonsData(countryFeatures)
+        .polygonGeoJsonGeometry(d => d.geometry)
+        .onPolygonHover(d => {
+          hoverD = d || null;
+          refreshPolygonStyles();
+          document.body.style.cursor = d ? 'pointer' : 'default';
+        })
+        .onPolygonClick((d, _ev, coords) => {
+          if (!d) return;
+          const lat = coords && Number.isFinite(coords.lat) ? coords.lat : featureCenter(d).lat;
+          const lng = coords && Number.isFinite(coords.lng) ? coords.lng : featureCenter(d).lng;
+          selectFeature(d, true, lat, lng);
+        });
+
+      refreshPolygonStyles();
+      exposeBridge();
+      // re-apply eSIM if portal already logged in
+      if (window.__SIMJ_LAST_COVERAGE && typeof window.SIMJ_PORTAL?.applyCoverage === 'function') {
+        try { window.SIMJ_PORTAL.applyCoverage(window.__SIMJ_LAST_COVERAGE); } catch (e) {}
+      }
+    }
+
+    function exposeBridge() {
+      window.SIMJ_GLOBE_STATE = {
+        globe: world,
+        countries: countryFeatures,
+        get interacting() { return false; }
+      };
+      window.SIMJ_GET_SELECTED_ISO = () => featIso(selectedD);
+      window.SIMJ_SELECT_COUNTRY = (c, fly = true) => {
+        // accept feature or iso string or portal country object
+        let feat = null;
+        if (typeof c === 'string') {
+          const iso = c.toUpperCase();
+          feat = countryFeatures.find(f => featIso(f) === iso);
+        } else if (c && c.geometry) {
+          feat = c;
+        } else if (c && (c.__iso2 || c.iso)) {
+          const iso = String(c.__iso2 || c.iso).toUpperCase();
+          feat = countryFeatures.find(f => featIso(f) === iso);
+        }
+        if (feat) selectFeature(feat, fly);
+      };
+      /** @deprecated use SIMJ_SET_COVERAGE_HIGHLIGHT */
+      window.SIMJ_SET_ESIM_HIGHLIGHT = (isoSet, items) => {
+        const set = isoSet instanceof Set ? isoSet : new Set(isoSet || []);
+        window.SIMJ_SET_COVERAGE_HIGHLIGHT({ appIsos: set, esimIsos: set, items: items || [] });
+      };
+
+      /**
+       * Called by portal after App sync coverage loads.
+       * appIsos: countries that have any cards in App
+       * esimIsos: subset with eSIM
+       */
+      window.SIMJ_SET_COVERAGE_HIGHLIGHT = (payload) => {
+        const p = payload || {};
+        appIsoSet = p.appIsos instanceof Set ? p.appIsos : new Set(p.appIsos || []);
+        esimIsoSet = p.esimIsos instanceof Set ? p.esimIsos : new Set(p.esimIsos || []);
+        // if only esim set passed historically, treat as app set too
+        if (!appIsoSet.size && esimIsoSet.size) appIsoSet = new Set(esimIsoSet);
+        coverageMetaByIso = new Map();
+        (p.items || []).forEach(it => {
+          const iso = String(it.iso || '').toUpperCase();
+          if (iso) coverageMetaByIso.set(iso, it);
+        });
+        console.info('[SIMJ] coverage highlight', {
+          app: appIsoSet.size,
+          esim: esimIsoSet.size,
+          isos: [...appIsoSet]
+        });
+        refreshPolygonStyles();
+        if (selectedD) {
+          const c = featureCenter(selectedD);
+          updateProfilePanel(selectedD, c.lat, c.lng);
+        }
+      };
+      window.dispatchEvent(new CustomEvent('simj-globe-ready', {
+        detail: {
+          globe: world,
+          countries: countryFeatures,
+          selectCountry: window.SIMJ_SELECT_COUNTRY
+        }
+      }));
+    }
+
+    // load local first, CDN fallback
+    fetch(LOCAL_DATA, { cache: 'force-cache' })
+      .then(r => { if (!r.ok) throw new Error('local miss'); return r.json(); })
+      .catch(() => fetch(DATA_URL).then(r => {
+        if (!r.ok) throw new Error('cdn fail');
+        return r.json();
+      }))
+      .then(onCountriesReady)
+      .catch(err => {
+        document.getElementById('loading').innerHTML = '⚠️ 国家数据加载失败，请检查网络';
+        console.error(err);
+      });
+
+    // rotate controls
+    world.controls().autoRotate = true;
+    world.controls().autoRotateSpeed = 0.9;
+    world.controls().enableDamping = true;
+    world.camera().position.z = 250;
+
+    let isRotating = true;
+    const btn = document.getElementById('toggleBtn');
+    function updateRotateBtn() {
+      if (isRotating) {
+        btn.innerHTML = '⏸️ 暂停自转';
+        btn.style.background = 'rgba(255, 255, 255, 0.1)';
+      } else {
+        btn.innerHTML = '▶️ 开始自转';
+        btn.style.background = 'rgba(255, 255, 255, 0.25)';
+      }
+    }
+    btn.addEventListener('click', () => {
+      isRotating = !isRotating;
+      world.controls().autoRotate = isRotating;
+      updateRotateBtn();
+    });
+
+    window.addEventListener('resize', () => {
+      world.width(window.innerWidth);
+      world.height(window.innerHeight);
+    });
+  })();
+  </script>
+
+  <!-- App 登录 + eSIM 覆盖 + 与后台同一账号体系 -->
+  <script src="/simj-portal.js?v=3d7"></script>
+</body>
+</html>

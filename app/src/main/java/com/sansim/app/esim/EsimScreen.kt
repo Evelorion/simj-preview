@@ -39,6 +39,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import com.sansim.app.LocalIsDark
+import com.sansim.app.motionClickable
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -347,7 +348,7 @@ fun EsimScreen(modifier: Modifier = Modifier) {
                     EmptyProfileCard(initialized = initialized, cardBg = cardBg, textPrimary = textPrimary, textMuted = textMuted, borderColor = borderColor)
                 }
             } else {
-                items(profiles, key = { it.iccid }) { p ->
+                items(profiles, key = { it.iccid }, contentType = { "profile-row" }) { p ->
                     ProfileRow(profile = p, eid = eid, busy = busy, cardBg = cardBg, cardSoft = cardSoft, textPrimary = textPrimary, textSecondary = textSecondary, textMuted = textMuted, borderColor = borderColor, greenSoft = greenSoft, neutralSoft = neutralSoft, onSwitch = { switchProfile(p) }, onRename = { renameProfile(p, it) }, onDelete = { deleteProfile(p) })
                 }
             }
@@ -446,7 +447,7 @@ private fun EsimHeroCard(
         }
         usbDevices.forEach { dev ->
             Row(
-                Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(cardSoft).clickable(enabled = !busy) { onUsb(dev) }.padding(12.dp),
+                Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(cardSoft).motionClickable(enabled = !busy, pressedScale = .985f) { onUsb(dev) }.padding(12.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Box(Modifier.size(34.dp).background(blueSoft, RoundedCornerShape(12.dp)), contentAlignment = Alignment.Center) { Text("U", color = Color(0xFF007AFF), fontWeight = FontWeight.Bold) }
@@ -462,7 +463,7 @@ private fun EsimHeroCard(
 }
 
 @Composable private fun ReaderButton(title: String, sub: String, color: Color, textSecondary: Color, enabled: Boolean, modifier: Modifier, onClick: () -> Unit) {
-    Surface(modifier = modifier.height(70.dp).clip(RoundedCornerShape(18.dp)).clickable(enabled = enabled) { onClick() }, shape = RoundedCornerShape(18.dp), color = color.copy(alpha = .10f)) {
+    Surface(modifier = modifier.height(70.dp).clip(RoundedCornerShape(18.dp)).motionClickable(enabled = enabled, pressedScale = .975f) { onClick() }, shape = RoundedCornerShape(18.dp), color = color.copy(alpha = .10f)) {
         Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.Center) {
             Text(title, color = color, fontSize = 15.sp, fontWeight = FontWeight.Bold)
             Text(sub, color = textSecondary, fontSize = 11.sp)

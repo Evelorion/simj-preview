@@ -14,4 +14,3 @@ dependencyResolutionManagement {
 }
 rootProject.name = "SimJ-Preview"
 include(":app")
-include(":core")
