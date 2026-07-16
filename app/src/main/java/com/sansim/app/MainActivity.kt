@@ -427,7 +427,8 @@ class MainActivity: ComponentActivity(){ private val req=registerForActivityResu
         run{ val editing = edit!=null
             if(editing && edit!=null){
                 Full编辑Screen(init=edit!!, onDismiss={edit=null}, onSave={r->
-                    val c=Countries.list.firstOrNull{it.code==r.countryCode && it.name==r.countryName} ?: Countries.list.firstOrNull{it.code==r.countryCode} ?: Countries.list.first()
+                    val resolvedIso=countryIsoFor(r.countryCode,r.countryName.ifBlank{r.flag})
+                    val c=Countries.list.firstOrNull{it.iso==resolvedIso} ?: Countries.list.firstOrNull{it.code==r.countryCode && it.name==r.countryName} ?: Countries.list.firstOrNull{it.code==r.countryCode} ?: Countries.list.first()
                     val nr0=r.copy(countryCode=c.code,countryName=c.name,flag=c.flag,operator= if(r.operator.isBlank()) guessOperator(r.number,c.iso) else r.operator, createdAt=if(r.createdAt.isBlank()) LocalDate.now().toString() else r.createdAt, activatedAt=if(r.activatedAt.isBlank() && (r.smdp.isNotBlank() || r.activationCode.isNotBlank())) LocalDate.now().toString() else r.activatedAt)
                     val nr=if(records.any{it.id==nr0.id}) nr0 else nr0.copy(sortOrder=((records.maxOfOrNull{it.sortOrder}?:0)+10).coerceAtLeast((records.size+1)*10))
                     records= if(records.any{it.id==nr.id}) records.map{if(it.id==nr.id)nr else it} else records+nr
@@ -1006,11 +1007,84 @@ fun shareExportFile(ctx:Context,fileName:String,mime:String,content:String,title
     Text(text,fontSize=12.sp,fontWeight=FontWeight.SemiBold,color=c,modifier=Modifier.clip(RoundedCornerShape(99.dp)).background(Color.White.copy(alpha=.92f)).motionClickable{onClick()}.padding(horizontal=10.dp,vertical=5.dp))
 }
 
-fun countryIsoFor(code:String,name:String):String =
-    Countries.list.firstOrNull{it.code==code && (it.name==name || it.iso.equals(name,true))}?.iso
-        ?: Countries.list.firstOrNull{it.iso.equals(name,true)}?.iso
-        ?: Countries.list.firstOrNull{it.code==code}?.iso
+private fun countryLookupKey(value:String):String {
+    if(value.isBlank()) return ""
+    val normalized = java.text.Normalizer.normalize(value.trim(), java.text.Normalizer.Form.NFKD)
+        .replace(Regex("\\p{Mn}+"), "")
+        .lowercase(java.util.Locale.ROOT)
+        .replace("&", "and")
+    return normalized.replace(Regex("[^\\p{L}\\p{N}]+"), "")
+}
+
+private val countryNameIsoAliases = mapOf(
+    "america" to "US",
+    "usa" to "US",
+    "unitedstatesofamerica" to "US",
+    "uk" to "GB",
+    "britain" to "GB",
+    "greatbritain" to "GB",
+    "taiwanprovinceofchina" to "TW",
+    "chinesetaiwan" to "TW",
+    "hongkongsarchina" to "HK",
+    "hongkongsar" to "HK",
+    "hongkongchina" to "HK",
+    "macaosarchina" to "MO",
+    "macaosar" to "MO",
+    "macausarchina" to "MO",
+    "macausar" to "MO",
+    "macau" to "MO",
+    "southkorea" to "KR",
+    "republicofkorea" to "KR",
+    "korea" to "KR",
+    "russia" to "RU",
+    "russianfederation" to "RU",
+    "northmacedonia" to "MK",
+    "macedonia" to "MK",
+    "iran" to "IR",
+    "iranislamicrepublicof" to "IR",
+    "syria" to "SY",
+    "syrianarabrepublic" to "SY",
+    "laos" to "LA",
+    "laopeoplesdemocraticrepublic" to "LA",
+    "brunei" to "BN",
+    "bruneidarussalam" to "BN",
+    "bolivia" to "BO",
+    "boliviaplurinationalstateof" to "BO",
+    "venezuela" to "VE",
+    "venezuelabolivarianrepublicof" to "VE",
+    "tanzania" to "TZ",
+    "tanzaniaunitedrepublicof" to "TZ",
+    "reunion" to "RE"
+)
+
+private val localeCountryIsoAliases:Map<String,String> by lazy {
+    val map = mutableMapOf<String,String>()
+    fun add(label:String, iso:String) {
+        val key = countryLookupKey(label)
+        if(key.isNotBlank() && !map.containsKey(key)) map[key] = iso
+    }
+    Countries.list.forEach { c ->
+        val locale = java.util.Locale("", c.iso)
+        add(c.iso, c.iso)
+        add(c.flag, c.iso)
+        add(c.name, c.iso)
+        add(locale.getDisplayCountry(java.util.Locale.ENGLISH), c.iso)
+        add(locale.getDisplayCountry(java.util.Locale.SIMPLIFIED_CHINESE), c.iso)
+        add(locale.getDisplayCountry(java.util.Locale.TRADITIONAL_CHINESE), c.iso)
+    }
+    countryNameIsoAliases.forEach { (key, iso) -> map[key] = iso }
+    map
+}
+
+fun countryIsoFor(code:String,name:String):String {
+    val raw = name.trim()
+    val upper = raw.uppercase(java.util.Locale.ROOT)
+    if(upper.length == 2 && Countries.list.any { it.iso == upper }) return upper
+    localeCountryIsoAliases[countryLookupKey(raw)]?.let { return it }
+    return Countries.list.firstOrNull { it.code == code && (it.name == raw || it.iso.equals(raw, true) || it.flag == raw) }?.iso
+        ?: Countries.list.firstOrNull { it.code == code }?.iso
         ?: ""
+}
 
 fun countryTheme(code:String,name:String):List<Color> =
     flagColorsForIso(countryIsoFor(code,name))
@@ -3644,6 +3718,9 @@ fun analyzeCloudSyncResponse(
     }
 }
 fun countryIsoForRecord(r:PhoneNumberRecord):String{
+    countryIsoFor(r.countryCode,r.countryName).ifBlank { countryIsoFor(r.countryCode,r.flag) }.let {
+        if(it.isNotBlank()) return it
+    }
     val country=Countries.list.firstOrNull{ it.name==r.countryName || it.flag==r.flag || (it.code==r.countryCode && r.countryName.isBlank()) }
         ?: Countries.list.firstOrNull{ it.code==r.countryCode && it.name==r.countryName }
     return country?.iso ?: ""
