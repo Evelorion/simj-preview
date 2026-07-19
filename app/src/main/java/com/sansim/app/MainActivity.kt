@@ -94,6 +94,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -731,8 +732,6 @@ fun shareExportFile(ctx:Context,fileName:String,mime:String,content:String,title
         Box(Modifier.fillMaxWidth()){
             if(decorated){
                 FlagArtPanel(r,Modifier.matchParentSize(),bankCardStyle)
-                Box(Modifier.matchParentSize().background(Brush.linearGradient(listOf(Color.White.copy(alpha=.38f),palette.soft.copy(alpha=.54f),palette.primary.copy(alpha=.20f),palette.secondary.copy(alpha=.20f)))))
-                Box(Modifier.matchParentSize().background(Brush.verticalGradient(listOf(Color.White.copy(alpha=.10f),Color.Transparent,Color.Black.copy(alpha=.08f)))))
             }
         Column(Modifier.padding(12.dp),verticalArrangement=Arrangement.spacedBy(12.dp)){
             ListItem(
@@ -1354,7 +1353,6 @@ fun usableFlagActionColor(color:Color,fallback:Color):Color = if(flagColorBright
 }
 
 @Composable fun FlagArtPanel(r:PhoneNumberRecord,m:Modifier,bankCardStyle:Boolean=false){
-    val ctx = LocalContext.current
     val iso = countryIsoFor(r.countryCode,r.countryName)
     val palette = flagPaletteFor(iso,r.countryCode,r.countryName)
     val colors=listOf(palette.primary,palette.secondary)
@@ -1364,9 +1362,7 @@ fun usableFlagActionColor(color:Color,fallback:Color):Color = if(flagColorBright
     val flagBitmap = rememberAssetBitmap(preferredAsset, bankCardStyle) ?: rememberAssetBitmap(assetJpg, bankCardStyle) ?: rememberAssetBitmap(assetPng, bankCardStyle)
     Box(m.background(Brush.linearGradient(colors)),contentAlignment=Alignment.Center){
         if(flagBitmap != null){
-            Image(bitmap=flagBitmap,contentDescription=r.countryName,contentScale=ContentScale.FillBounds,modifier=Modifier.fillMaxSize().graphicsLayer(alpha=.78f))
-            Box(Modifier.fillMaxSize().background(Brush.horizontalGradient(listOf(palette.soft.copy(alpha=.44f),Color.White.copy(alpha=.10f),palette.secondary.copy(alpha=.22f),palette.primary.copy(alpha=.24f)))))
-            Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Color.White.copy(alpha=.13f),Color.Transparent,Color.Black.copy(alpha=.10f)))))
+            Image(bitmap=flagBitmap,contentDescription=r.countryName,contentScale=ContentScale.Crop,modifier=Modifier.fillMaxSize().graphicsLayer(alpha=.92f))
         }else{
             when{
                 r.countryCode=="+86" || r.countryName.contains("中国") -> Box(Modifier.fillMaxSize()){
@@ -1380,9 +1376,100 @@ fun usableFlagActionColor(color:Color,fallback:Color):Color = if(flagColorBright
                     Box(Modifier.fillMaxSize().background(Brush.linearGradient(listOf(palette.primary.copy(alpha=.36f),palette.secondary.copy(alpha=.24f),palette.accent.copy(alpha=.18f)))))
                 }
             }
-            Box(Modifier.fillMaxSize().background(Brush.horizontalGradient(listOf(palette.soft.copy(alpha=.30f),Color.Transparent,palette.primary.copy(alpha=.18f)))))
-            Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Color.White.copy(alpha=.10f),Color.Transparent,Color.Black.copy(alpha=.10f)))))
         }
+        TexturedFlagGlassOverlay(palette,Modifier.matchParentSize())
+    }
+}
+
+@Composable fun TexturedFlagGlassOverlay(palette:FlagPalette,m:Modifier=Modifier){
+    Canvas(m){
+        val w=size.width
+        val h=size.height
+        if(w<=0f || h<=0f) return@Canvas
+        drawRect(
+            brush=Brush.horizontalGradient(
+                colors=listOf(
+                    Color.White.copy(alpha=.56f),
+                    Color.White.copy(alpha=.35f),
+                    Color.White.copy(alpha=.13f),
+                    Color.Transparent,
+                    palette.primary.copy(alpha=.18f),
+                    Color.Black.copy(alpha=.22f)
+                ),
+                startX=0f,
+                endX=w
+            )
+        )
+        drawRect(
+            brush=Brush.linearGradient(
+                colors=listOf(Color.White.copy(alpha=.36f),Color.White.copy(alpha=.10f),Color.Transparent),
+                start=Offset(-w*.12f,-h*.08f),
+                end=Offset(w*.62f,h*.58f)
+            )
+        )
+        drawRect(
+            brush=Brush.radialGradient(
+                colors=listOf(Color.White.copy(alpha=.26f),Color.Transparent),
+                center=Offset(w*.14f,h*.12f),
+                radius=w*.72f
+            )
+        )
+        drawRect(
+            brush=Brush.radialGradient(
+                colors=listOf(palette.secondary.copy(alpha=.24f),Color.Transparent),
+                center=Offset(w*.92f,h*.18f),
+                radius=w*.56f
+            )
+        )
+        repeat(7){ i->
+            val y=h*(.10f+i*.14f)
+            val crest=Path().apply{
+                moveTo(-w*.12f,y)
+                cubicTo(w*.16f,y-h*.15f,w*.44f,y+h*.17f,w*1.12f,y-h*.08f)
+            }
+            drawPath(crest,Color.White.copy(alpha=if(i%2==0).12f else .07f),style=Stroke(width=h*(if(i%2==0).030f else .018f)))
+            val shadow=Path().apply{
+                moveTo(-w*.10f,y+h*.028f)
+                cubicTo(w*.18f,y-h*.10f,w*.48f,y+h*.22f,w*1.10f,y-h*.02f)
+            }
+            drawPath(shadow,Color.Black.copy(alpha=.045f),style=Stroke(width=h*.018f))
+        }
+        repeat(8){ i->
+            val base=-w*.20f+i*w*.19f
+            val streak=Path().apply{
+                moveTo(base,-h*.22f)
+                cubicTo(base+w*.20f,h*.18f,base+w*.06f,h*.55f,base+w*.30f,h*1.20f)
+            }
+            drawPath(streak,Color.White.copy(alpha=if(i%3==0).16f else .085f),style=Stroke(width=w*(if(i%3==0).010f else .005f)))
+        }
+        drawRect(
+            brush=Brush.linearGradient(
+                colors=listOf(Color.White.copy(alpha=.22f),Color.Transparent,Color.Transparent),
+                start=Offset(0f,0f),
+                end=Offset(w*.36f,h)
+            )
+        )
+        drawRect(
+            brush=Brush.radialGradient(
+                colors=listOf(Color.Black.copy(alpha=.30f),Color.Transparent),
+                center=Offset(w*1.05f,h*1.02f),
+                radius=w*.88f
+            )
+        )
+        drawRect(
+            brush=Brush.verticalGradient(
+                colors=listOf(Color.White.copy(alpha=.11f),Color.Transparent,Color.Black.copy(alpha=.12f)),
+                startY=0f,
+                endY=h
+            )
+        )
+        drawRect(
+            brush=Brush.linearGradient(
+                colors=listOf(Color.White.copy(alpha=.18f),Color.Transparent,Color.White.copy(alpha=.08f)),
+                start=Offset(w*.05f,0f),
+                end=Offset(w*.95f,h)
+            )
+        )
     }
 }
 
