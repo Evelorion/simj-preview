@@ -2,7 +2,7 @@
 
 DsimJ — SIM 卡 & eSIM 全能管家。
 
-爱用AI的Doro 基于 SIMJ 项目的再次开发，面向号码保号 + eSIM 管理的 Android 工具。预览版包含最新实验性功能。
+爱用AI的Doro 维护的 DsimJ 是基于 SIMJ 项目进行二次开发（二改）的 Android 工具，面向号码保号 + eSIM 管理。预览版包含最新实验性功能。
 
 ## 预览
 

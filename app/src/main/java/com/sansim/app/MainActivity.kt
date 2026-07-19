@@ -4652,7 +4652,7 @@ Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(8.dp)){
             Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically){
                 Box(Modifier.size(34.dp).clip(RoundedCornerShape(17.dp)).background(Color(0xFF007AFF)),contentAlignment=Alignment.Center){Text("i",color=Color.White,fontWeight=FontWeight.Bold)}
                 Spacer(Modifier.width(10.dp))
-                Text("DsimJ v"+currentVersion+"\n"+L("开发者")+"：爱用AI的Doro\n基于 SIMJ 项目的再次开发\n"+L("本地数据存储"),fontSize=13.sp,color=Color(0xFF4B5563),lineHeight=20.sp)
+                Text("DsimJ v"+currentVersion+"\n"+L("开发者")+"：爱用AI的Doro\n基于 SIMJ 项目进行二次开发（二改）\n"+L("本地数据存储"),fontSize=13.sp,color=Color(0xFF4B5563),lineHeight=20.sp)
             }
             Spacer(Modifier.height(8.dp))
             var checking by remember { mutableStateOf(false) }
