@@ -98,6 +98,11 @@ private data class GlobeHit(
 
 private data class GlobeFrame(val center: Offset, val radius: Float)
 
+private const val GlobeMapSimplifyTolerance = .05f
+private const val GlobeMapMaxLargeRingPoints = 420
+private const val GlobeMapMaxMediumRingPoints = 260
+private const val GlobeMapMaxSmallRingPoints = 160
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SimMapPage(records: List<PhoneNumberRecord>, onEdit: (PhoneNumberRecord) -> Unit = {}) {
@@ -708,10 +713,9 @@ private fun InteractiveGlobeMap(
                 }
         ) {
             val frame = globeFrame(size.width, size.height, zoom)
-            // Draw at most a few large outer rings per country (already simplified on load)
             val projectedCountries = countries.mapNotNull { country ->
-                val paths = country.rings.mapNotNull { ring ->
-                    buildProjectedPath(ring, frame, centerLon, centerLat)
+                val paths = country.rings.flatMap { ring ->
+                    buildProjectedPaths(ring, frame, centerLon, centerLat)
                 }
                 if (paths.isEmpty()) null
                 else {
@@ -896,21 +900,39 @@ private fun screenToLonLat(
     return LonLat(normalizeLon(Math.toDegrees(lon).toFloat()), Math.toDegrees(lat).toFloat())
 }
 
-private fun buildProjectedPath(
+private fun buildProjectedPaths(
     ring: List<LonLat>,
     frame: GlobeFrame,
     centerLon: Float,
     centerLat: Float
-): Path? {
-    if (ring.size < 3) return null
-    val projected = ring.mapNotNull { point -> projectLonLat(point.lon, point.lat, frame, centerLon, centerLat)?.first }
-    if (projected.size < 3 || projected.size < ring.size * .28f) return null
-    return Path().apply {
-        projected.forEachIndexed { index, point ->
-            if (index == 0) moveTo(point.x, point.y) else lineTo(point.x, point.y)
+): List<Path> {
+    if (ring.size < 3) return emptyList()
+    val paths = mutableListOf<Path>()
+    var path = Path()
+    var segmentPoints = 0
+    var clipped = false
+
+    fun finishSegment(close: Boolean) {
+        if (segmentPoints >= 3) {
+            if (close) path.close()
+            paths += path
         }
-        close()
+        path = Path()
+        segmentPoints = 0
     }
+
+    ring.forEach { point ->
+        val projected = projectLonLat(point.lon, point.lat, frame, centerLon, centerLat)?.first
+        if (projected == null) {
+            clipped = true
+            finishSegment(close = false)
+        } else {
+            if (segmentPoints == 0) path.moveTo(projected.x, projected.y) else path.lineTo(projected.x, projected.y)
+            segmentPoints += 1
+        }
+    }
+    finishSegment(close = !clipped)
+    return paths
 }
 
 private fun pickCountry(countries: List<GlobeCountry>, point: LonLat): GlobeCountry? {
@@ -939,10 +961,10 @@ private fun containsLonLat(ring: List<LonLat>, point: LonLat): Boolean {
 
 private fun loadGlobeCountries(context: Context): List<GlobeCountry> {
     return runCatching {
-        // Prefer lightweight 110m data — 50m is ~3MB and freezes Canvas on pan/zoom.
+        // Use 50m outlines for cleaner borders, then simplify once at load time for Canvas.
         val raw = listOf(
-            "map/ne_110m_admin_0_countries.geojson",
-            "map/ne_50m_admin_0_countries.geojson"
+            "map/ne_50m_admin_0_countries.geojson",
+            "map/ne_110m_admin_0_countries.geojson"
         ).firstNotNullOfOrNull { asset ->
             runCatching {
                 context.assets.open(asset).bufferedReader(Charsets.UTF_8).use { it.readText() }
@@ -969,10 +991,9 @@ private fun loadGlobeCountries(context: Context): List<GlobeCountry> {
         }
         val grouped = parsed.groupBy { it.iso }.map { (iso, group) ->
             val extraHitRings = smallCountryHitRings[iso].orEmpty()
-            // Keep only the largest few rings per country (drop tiny islands that kill FPS)
             val allRings = group.flatMap { it.rings }
                 .sortedByDescending { ringAreaApprox(it) }
-                .take(if (iso in setOf("ID", "PH", "CA", "US", "RU", "JP", "GB", "NO", "GR")) 6 else 3)
+                .take(visibleRingBudgetForIso(iso))
             GlobeCountry(
                 iso = iso,
                 name = displayNameForIso(iso, group.firstOrNull { it.name.isNotBlank() }?.name ?: iso),
@@ -998,36 +1019,85 @@ private fun ringAreaApprox(ring: List<LonLat>): Float {
     return abs(a) * .5f
 }
 
-/** Downsample rings so Canvas path count stays small during gestures. */
+private fun visibleRingBudgetForIso(iso: String): Int =
+    if (iso in setOf("CN", "ID", "PH", "CA", "US", "RU", "JP", "GB", "NO", "GR")) 6 else 3
+
+/** Simplify rings so borders stay recognizable without freezing Canvas gestures. */
 private fun simplifyCountryRings(rings: List<List<LonLat>>): List<List<LonLat>> {
     return rings.mapNotNull { ring ->
         if (ring.size < 4) return@mapNotNull null
         val maxPts = when {
-            ring.size > 400 -> 48
-            ring.size > 200 -> 56
-            ring.size > 100 -> 64
-            else -> 80
+            ring.size > 900 -> GlobeMapMaxLargeRingPoints
+            ring.size > 220 -> GlobeMapMaxMediumRingPoints
+            else -> GlobeMapMaxSmallRingPoints
         }
-        downsampleLonLatRing(ring, maxPts)
+        simplifyLonLatRing(ring, GlobeMapSimplifyTolerance, maxPts)
     }.filter { it.size >= 3 }
 }
 
-private fun downsampleLonLatRing(ring: List<LonLat>, maxPts: Int): List<LonLat> {
-    if (ring.size <= maxPts) return ring
+private fun simplifyLonLatRing(ring: List<LonLat>, tolerance: Float, maxPts: Int): List<LonLat> {
     val closed = ring.size > 2 &&
         abs(ring.first().lon - ring.last().lon) < 1e-4f &&
         abs(ring.first().lat - ring.last().lat) < 1e-4f
     val body = if (closed) ring.dropLast(1) else ring
-    if (body.size <= maxPts) return ring
-    val step = (body.size.toFloat() / maxPts).coerceAtLeast(1f)
+    val simplified = douglasPeuckerLonLat(body, tolerance)
+    val capped = if (simplified.size > maxPts) capLonLatRing(simplified, maxPts) else simplified
+    return if (closed && capped.isNotEmpty()) capped + capped.first() else capped
+}
+
+private fun douglasPeuckerLonLat(points: List<LonLat>, tolerance: Float): List<LonLat> {
+    if (points.size <= 2) return points
+    val keep = BooleanArray(points.size)
+    keep[0] = true
+    keep[points.lastIndex] = true
+    val stack = java.util.ArrayDeque<Pair<Int, Int>>()
+    stack.add(0 to points.lastIndex)
+    while (!stack.isEmpty()) {
+        val (start, end) = stack.removeLast()
+        var maxDistance = 0f
+        var index = -1
+        for (i in start + 1 until end) {
+            val distance = distanceToSegment(points[i], points[start], points[end])
+            if (distance > maxDistance) {
+                maxDistance = distance
+                index = i
+            }
+        }
+        if (maxDistance > tolerance && index > start) {
+            keep[index] = true
+            stack.add(start to index)
+            stack.add(index to end)
+        }
+    }
+    return points.filterIndexed { index, _ -> keep[index] }
+}
+
+private fun distanceToSegment(point: LonLat, start: LonLat, end: LonLat): Float {
+    val dx = end.lon - start.lon
+    val dy = end.lat - start.lat
+    if (abs(dx) < 1e-6f && abs(dy) < 1e-6f) {
+        val px = point.lon - start.lon
+        val py = point.lat - start.lat
+        return sqrt(px * px + py * py)
+    }
+    val t = (((point.lon - start.lon) * dx + (point.lat - start.lat) * dy) / (dx * dx + dy * dy)).coerceIn(0f, 1f)
+    val projectedLon = start.lon + t * dx
+    val projectedLat = start.lat + t * dy
+    val px = point.lon - projectedLon
+    val py = point.lat - projectedLat
+    return sqrt(px * px + py * py)
+}
+
+private fun capLonLatRing(ring: List<LonLat>, maxPts: Int): List<LonLat> {
+    if (ring.size <= maxPts) return ring
+    val step = (ring.size.toFloat() / maxPts).coerceAtLeast(1f)
     val out = ArrayList<LonLat>(maxPts + 1)
     var i = 0f
-    while (i < body.size) {
-        out.add(body[i.toInt().coerceIn(0, body.lastIndex)])
+    while (i < ring.size) {
+        out.add(ring[i.toInt().coerceIn(0, ring.lastIndex)])
         i += step
     }
-    if (out.last() != body.last()) out.add(body.last())
-    if (closed) out.add(out.first())
+    if (out.last() != ring.last()) out.add(ring.last())
     return out
 }
 
