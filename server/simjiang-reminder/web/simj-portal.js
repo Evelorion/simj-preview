@@ -8,10 +8,14 @@
   const SIMJ_ITER = 310000;
 
   async function api(method, path, body) {
+    const headers = {};
+    if (body) headers["Content-Type"] = "application/json";
+    const token = sessionStorage.getItem("simj_session_token") || "";
+    if (token) headers.Authorization = `Bearer ${token}`;
     const res = await fetch(path, {
       method,
       credentials: "include",
-      headers: body ? { "Content-Type": "application/json" } : {},
+      headers,
       body: body ? JSON.stringify(body) : undefined,
     });
     const data = await res.json().catch(() => ({}));
@@ -276,6 +280,27 @@
     }
     .simj-phone-card .tag.sim{background:rgba(255,255,255,.1);color:#c9d5e6}
     .simj-empty{grid-column:1/-1;text-align:center;color:#9eb0ca;padding:40px 12px;font-size:13px;line-height:1.6}
+    .simj-unlock{
+      grid-column:1/-1;
+      display:flex;justify-content:center;padding:34px 12px
+    }
+    .simj-unlock-box{
+      width:min(460px,100%);
+      border-radius:18px;border:1px solid rgba(255,255,255,.12);
+      background:rgba(255,255,255,.05);
+      padding:18px;display:grid;gap:10px
+    }
+    .simj-unlock-box b{font-size:15px;color:#fff}
+    .simj-unlock-box p{margin:0;color:#9eb0ca;font-size:12px;line-height:1.55}
+    .simj-unlock-box input{
+      width:100%;box-sizing:border-box;border-radius:14px;border:1px solid rgba(255,255,255,.14);
+      background:rgba(3,8,20,.68);color:#fff;padding:12px;font:inherit;outline:none
+    }
+    .simj-unlock-box button{
+      border:0;border-radius:14px;padding:11px 14px;font:inherit;font-weight:800;cursor:pointer;
+      color:#fff;background:linear-gradient(135deg,#38bdf8,#7c3aed)
+    }
+    .simj-unlock-error{min-height:16px;color:#fb7185;font-size:12px}
 
     @media(max-width:900px){
       .simj-portal{
@@ -656,7 +681,48 @@
       if (sub) sub.textContent = `${cards.length} 张卡片 · 点卡片可复制号码`;
       body.innerHTML = "";
       if (!cards.length) {
-        body.innerHTML = `<div class="simj-empty">暂无号码卡片。<br>请在最新版 App 登录同一账号后点「同步到云端」。</div>`;
+        const hint = Number(coverage.records || 0);
+        if (hint > 0) {
+          body.innerHTML = `
+            <div class="simj-unlock">
+              <div class="simj-unlock-box">
+                <b>云端有 ${hint} 个号码</b>
+                <p>请输入这个账号的云同步密码解锁完整号码。完整号码只从端到端加密仓库解出，不从服务器统计里读取。</p>
+                <input id="simj-unlock-pass" type="password" autocomplete="current-password" placeholder="云同步密码">
+                <button type="button" id="simj-unlock-btn">解锁并显示全部号码</button>
+                <div class="simj-unlock-error" id="simj-unlock-error"></div>
+              </div>
+            </div>`;
+          const passInput = body.querySelector("#simj-unlock-pass");
+          const unlockBtn = body.querySelector("#simj-unlock-btn");
+          const errEl = body.querySelector("#simj-unlock-error");
+          const unlock = async () => {
+            const password = passInput.value || "";
+            if (password.length < 8) {
+              errEl.textContent = "请输入正确的云同步密码";
+              return;
+            }
+            unlockBtn.disabled = true;
+            unlockBtn.textContent = "正在解密...";
+            errEl.textContent = "";
+            const ok = await pullVaultIfPossible(currentUsername, password);
+            passInput.value = "";
+            if (ok) {
+              msg("已解锁完整号码");
+              render();
+            } else {
+              errEl.textContent = "密码无法解开云端密文，请确认账号密码正确，或在 App 重新同步一次。";
+              unlockBtn.disabled = false;
+              unlockBtn.textContent = "解锁并显示全部号码";
+            }
+          };
+          unlockBtn.onclick = unlock;
+          passInput.onkeydown = (e) => {
+            if (e.key === "Enter") unlock();
+          };
+        } else {
+          body.innerHTML = `<div class="simj-empty">暂无号码卡片。<br>请在最新版 App 登录同一账号后点「同步到云端」。</div>`;
+        }
         return;
       }
       cards.forEach((c) => {
@@ -834,7 +900,8 @@
 
       if (mode === "login") {
         if (password.length < 8) throw new Error("请输入至少 8 位密码");
-        await api("POST", "/api/account/login", { username, password });
+        const data = await api("POST", "/api/account/login", { username, password });
+        if (data.token) sessionStorage.setItem("simj_session_token", data.token);
         await loadMe({ password });
         $("simj-pass").value = "";
         return;
@@ -844,6 +911,7 @@
         if (password.length < 8) throw new Error("密码至少 8 位");
         if (password !== password2) throw new Error("两次密码不一致");
         const data = await api("POST", "/api/account/register", { username, password });
+        if (data.token) sessionStorage.setItem("simj_session_token", data.token);
         if (data.privateKey) showPrivateKeyOnce(data.privateKey);
         await loadMe({ password });
         $("simj-pass").value = "";
@@ -882,6 +950,7 @@
     try {
       await api("POST", "/api/account/logout", {});
     } catch (_) {}
+    sessionStorage.removeItem("simj_session_token");
     sessionStorage.removeItem("simj_vault_secret");
     sessionStorage.removeItem("simj_vault_user");
     location.reload();

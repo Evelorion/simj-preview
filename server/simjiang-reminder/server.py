@@ -1672,7 +1672,7 @@ class H(BaseHTTPRequestHandler):
         # - index.html short cache (entry)
         # - vendor/app/assets/data long cache (browser disk = "local" after first visit)
         rel_posix = rel.replace("\\", "/")
-        if file_path.name == "index.html":
+        if file_path.name == "index.html" or rel_posix == "simj-portal.js":
             self.send_header("Cache-Control", "public, max-age=60")
         elif (
             rel_posix.startswith("vendor/")
