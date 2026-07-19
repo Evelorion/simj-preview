@@ -8,6 +8,8 @@ server/simjiang-reminder/*.tgz
 server/simjiang-reminder/web-static.tgz
 *.sqlite
 *.sqlite3
+__pycache__/
+*.pyc
 build/
 */build/
 local.properties

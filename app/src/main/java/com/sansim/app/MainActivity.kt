@@ -395,11 +395,16 @@ class MainActivity: ComponentActivity(){ private val req=registerForActivityResu
     fun autoCloudSync(rs:List<PhoneNumberRecord>, st:App设置){
         if(st.cloudEnabled && st.cloudAutoSync && st.cloudToken.isNotBlank() && cleanCloudApiKey(st.cloudApiKey).isNotBlank() && rs.isNotEmpty()){
             cloudGet(st,"/api/sync"){ok,msg->
-                if(ok || msg.contains("404") || msg.contains("暂无") || msg.contains("no cloud data",true)){
-                    val (cloudRecords,cloudSettings)=if(ok) parseCloudPayloadResponse(msg,st) else Pair(emptyList<PhoneNumberRecord>(),null)
-                    val merged=mergeRecords(cloudRecords,rs)
-                    val mergedSettings=mergeCloudSettings(st,cloudSettings)
-                    cloudPost(mergedSettings,"/api/sync",cloudEncryptedPayload(merged,mergedSettings)){_,_->}
+                if(ok){
+                    val pull=analyzeCloudSyncResponse(msg,st)
+                    val cannotReadCloud=pull.hasEncryptedVault && pull.records.isEmpty() && (pull.decryptError!=null || pull.cloudRecordHint>0)
+                    if(!cannotReadCloud){
+                        val merged=mergeRecords(pull.records,rs)
+                        val mergedSettings=mergeCloudSettings(st,pull.settings)
+                        cloudPost(mergedSettings,"/api/sync",cloudEncryptedPayload(merged,mergedSettings)){_,_->}
+                    }
+                }else if(msg.contains("404") || msg.contains("暂无") || msg.contains("no cloud data",true)){
+                    cloudPost(st,"/api/sync",cloudEncryptedPayload(rs,st)){_,_->}
                 }
             }
         }
@@ -3838,18 +3843,18 @@ fun cloudCoverage(records:List<PhoneNumberRecord>):JSONObject{
         item.put("records",item.optInt("records",0)+1)
         val isEsim=isCloudEsimRecord(r)
         if(isEsim) item.put("esims",item.optInt("esims",0)+1)
-        // 同账户 Web 展示用完整号码卡片（仅登录账号可拉 coverage；vault 仍为 E2EE）
+        // Coverage is server-readable metadata only; full numbers stay inside encryptedVault.
         val samples=item.optJSONArray("samples") ?: JSONArray().also{ item.put("samples",it) }
         if(samples.length()<120){
             val digits=r.number.filter{ it.isDigit() }
             val last4=if(digits.length>=4) digits.takeLast(4) else digits.ifBlank{"????"}
+            val mask=if(last4!="????") "**** $last4" else "****"
             val op=r.operator.ifBlank{ r.countryName }.take(40)
             samples.put(
                 JSONObject()
                     .put("id",r.id)
-                    .put("number",r.number)
                     .put("last4",last4)
-                    .put("mask",r.number.ifBlank{"•••• $last4"})
+                    .put("mask",mask)
                     .put("op",op)
                     .put("esim",isEsim)
                     .put("code",r.countryCode)
@@ -4213,16 +4218,18 @@ fun restoreCloudBackupById(st:App设置, backupId:Int, onResult:(Boolean,String)
                 try{
                     cloudGet(st,"/api/sync"){ok2,msg2->
                         if(ok2){
-                            val (cloudRecords,cloudSettings)=parseCloudPayloadResponse(msg2,st)
-                            if(cloudRecords.isNotEmpty()){
-                                val ns=mergeCloudSettings(st,cloudSettings)
+                            val pull=analyzeCloudSyncResponse(msg2,st)
+                            if(pull.records.isNotEmpty()){
+                                val ns=mergeCloudSettings(st,pull.settings)
                                 st=ns
-                                onCloudRestore(cloudRecords,ns)
-                                showCloudMsg("已恢复指定备份：${cloudRecords.size} 个号码，配置已同步")
-                            }else showCloudMsg("已恢复指定备份（密文已还原，请确认本机私钥正确）")
+                                onCloudRestore(pull.records,ns)
+                                showCloudMsg("已恢复指定备份：${pull.records.size} 个号码，配置已同步")
+                            }else if(pull.hasEncryptedVault || pull.cloudRecordHint>0){
+                                showCloudMsg("已恢复指定备份，但当前密码密钥解不开密文；请退出后用正确密码重新登录")
+                            }else showCloudMsg("已恢复指定备份")
                         }else showCloudMsg("已恢复指定备份")
                         loadCloudOverview()
-        loadCloudReminderStatus()
+                        loadCloudReminderStatus()
                         loadCloudBackups()
                     }
                 }catch(_:Exception){

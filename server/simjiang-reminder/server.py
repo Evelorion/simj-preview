@@ -247,6 +247,7 @@ def init_db():
         "INSERT OR REPLACE INTO schema_meta(key,value) VALUES(?,?)",
         ("version", SCHEMA_VERSION),
     )
+    sanitize_stored_coverage(conn)
     commit(conn)
     conn.close()
 
@@ -669,6 +670,7 @@ def load_coverage(conn, account_id: str) -> dict:
         cov = {}
     if not isinstance(cov, dict):
         cov = {}
+    cov = normalize_coverage(cov)
     cov.setdefault("countries", [])
     cov.setdefault("countryCount", len(cov.get("countries") or []))
     cov.setdefault("records", int(row["records_count"] or 0))
@@ -689,22 +691,27 @@ def normalize_coverage(raw) -> dict:
             continue
         esims = int(item.get("esims") or 0)
         records = int(item.get("records") or 0)
-        # Account-private card samples for logged-in Web UI (full number OK — only same session can fetch)
+        # Account-private metadata only. Full numbers must stay inside encryptedVault.
         samples_out = []
         for s in (item.get("samples") or [])[:120]:
             if not isinstance(s, dict):
                 continue
-            number = str(s.get("number") or s.get("num") or "").strip()[:40]
-            digits = re.sub(r"\D", "", number)
+            raw_number = str(s.get("number") or s.get("num") or "").strip()[:40]
+            digits = re.sub(r"\D", "", raw_number)
             last4 = re.sub(r"\D", "", str(s.get("last4") or ""))[-4:] or digits[-4:]
-            if not last4 and not number:
+            mask = str(s.get("mask") or "").strip()[:48]
+            mask_digits = re.sub(r"\D", "", mask)
+            if raw_number and (not mask or (digits and digits in mask_digits)):
+                mask = ("**** " + (last4 or "????")).strip()
+            elif not mask:
+                mask = ("**** " + (last4 or "????")).strip()
+            if not last4 and not mask:
                 continue
             samples_out.append(
                 {
                     "id": str(s.get("id") or "")[:64],
-                    "number": number,
                     "last4": last4 or "????",
-                    "mask": str(s.get("mask") or number or ("•••• " + (last4 or "????")))[:48],
+                    "mask": mask,
                     "op": str(s.get("op") or "")[:40],
                     "esim": bool(s.get("esim")),
                     "code": str(s.get("code") or "")[:12],
@@ -735,6 +742,24 @@ def normalize_coverage(raw) -> dict:
         "esims": sum(c["esims"] for c in countries) or int(raw.get("esims") or 0),
         "updatedAt": int(raw.get("updatedAt") or time.time()),
     }
+
+
+def sanitize_stored_coverage(conn):
+    """Remove plaintext number samples left by older coverage writers."""
+    for table, key_col in (("encrypted_sync", "account_id"), ("sync_backups", "id")):
+        rows = conn.execute(f"SELECT {key_col}, coverage_json FROM {table}").fetchall()
+        for row in rows:
+            try:
+                raw = json.loads(row["coverage_json"] or "{}")
+            except Exception:
+                raw = {}
+            clean = normalize_coverage(raw)
+            clean_text = json.dumps(clean, ensure_ascii=False)
+            if clean_text != (row["coverage_json"] or "{}"):
+                conn.execute(
+                    f"UPDATE {table} SET coverage_json=? WHERE {key_col}=?",
+                    (clean_text, row[key_col]),
+                )
 
 
 def records_from_coverage(coverage: dict) -> list[dict]:
@@ -1087,6 +1112,7 @@ class H(BaseHTTPRequestHandler):
                     coverage = json.loads(row["coverage_json"] or "{}")
                 except Exception:
                     coverage = {}
+                coverage = normalize_coverage(coverage)
                 legacy_records = records_from_coverage(coverage)
                 return self._json(
                     200,
