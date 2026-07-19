@@ -105,6 +105,7 @@ import androidx.compose.ui.unit.sp
 import org.json.JSONArray
 import org.json.JSONObject
 import java.net.HttpURLConnection
+import java.net.URI
 import java.net.URL
 import java.net.URLEncoder
 import javax.net.ssl.SSLSocketFactory
@@ -3557,7 +3558,16 @@ fun cleanCloudUrl(raw:String):String = raw.trim().trimEnd('/')
 fun cleanBundledCloudUrl(raw:String):String {
     val url=cleanCloudUrl(raw)
     if(url.isBlank()) return DEFAULT_SIMJ_CLOUD_URL
-    return url
+    return runCatching {
+        val uri=URI(url)
+        val scheme=uri.scheme?.lowercase()
+        val host=uri.host ?: return@runCatching url
+        val barePath=uri.rawPath.isNullOrBlank() || uri.rawPath=="/"
+        val ipv4=Regex("""\d{1,3}(\.\d{1,3}){3}""").matches(host)
+        if(scheme=="http" && ipv4 && uri.port<0 && barePath) {
+            URI(scheme,uri.userInfo,host,8787,uri.rawPath,uri.rawQuery,uri.rawFragment).toString().trimEnd('/')
+        } else url
+    }.getOrDefault(url)
 }
 fun isPublicCloudPath(path:String):Boolean =
     path.startsWith("/api/status") ||
@@ -3565,6 +3575,37 @@ fun isPublicCloudPath(path:String):Boolean =
     path.startsWith("/api/account/register") ||
     path.startsWith("/api/account/login") ||
     path.startsWith("/api/account/reset-password")
+
+fun apiJsonBodyOrError(path:String,respBody:String):String{
+    val body=respBody.trimStart()
+    if(path.startsWith("/api/") && body.isNotBlank() && !body.startsWith("{") && !body.startsWith("[")){
+        return "失败: 云端服务地址返回的不是 DsimJ JSON 接口，请检查服务地址是否写到后端端口（默认 8787）"
+    }
+    return respBody
+}
+
+fun cloudAuthTokenFrom(text:String):String = runCatching {
+    val obj=JSONObject(text)
+    listOf(
+        obj.optString("token",""),
+        obj.optString("sessionToken",""),
+        obj.optString("session",""),
+        obj.optJSONObject("data")?.optString("token","") ?: "",
+        obj.optJSONObject("user")?.optString("token","") ?: ""
+    ).firstOrNull{ it.isNotBlank() } ?: ""
+}.getOrDefault("")
+
+fun cloudAuthTokenMissingMessage(text:String,action:String):String = runCatching {
+    val obj=JSONObject(text)
+    val serverMsg=obj.optString("message","").ifBlank{ obj.optString("error","") }
+    when{
+        obj.has("ok") && !obj.optBoolean("ok",true) && serverMsg.isNotBlank() -> serverMsg
+        serverMsg.isNotBlank() -> "$action 成功但服务器未返回令牌：$serverMsg"
+        else -> "$action 成功但服务器未返回令牌"
+    }
+}.getOrElse{
+    "云端返回的不是登录 JSON，请检查服务地址是否指向后端端口（默认 8787）"
+}
 
 fun cloudPayload(records:List<PhoneNumberRecord>,s:App设置):String{
     val settings=settingsToJson(s)
@@ -3940,7 +3981,7 @@ fun cloudRequest(s:App设置,path:String,method:String="POST",body:String="{}",l
                 // Prefer server JSON message when present
                 val serverMsg=runCatching{ JSONObject(respBody).optString("message","") }.getOrDefault("")
                 if(serverMsg.isNotBlank()) "HTTP $respCode: $serverMsg" else "HTTP $respCode: $respBody"
-            }else respBody
+            }else apiJsonBodyOrError(path,respBody)
         }.recoverCatching{ first ->
             // One automatic retry for ProtocolException / truncated response
             val m0=first.message?:""
@@ -3972,7 +4013,7 @@ fun cloudRequest(s:App设置,path:String,method:String="POST",body:String="{}",l
             if(respCode !in 200..299){
                 val serverMsg=runCatching{ JSONObject(respBody).optString("message","") }.getOrDefault("")
                 if(serverMsg.isNotBlank()) "HTTP $respCode: $serverMsg" else "HTTP $respCode: $respBody"
-            }else respBody
+            }else apiJsonBodyOrError(path,respBody)
         }.fold(
             {it},
             { e ->
@@ -4374,8 +4415,8 @@ fun restoreCloudBackupById(st:App设置, backupId:Int, onResult:(Boolean,String)
                             cloudPost(st,"/api/account/login",body){ok,msg->
                                 registerBusy=false
                                 if(ok){
-                                    val token=runCatching{ JSONObject(msg).optString("token","") }.getOrDefault("")
-                                    if(token.isBlank()) showCloudMsg("登录成功但服务器未返回令牌")
+                                    val token=cloudAuthTokenFrom(msg)
+                                    if(token.isBlank()) showCloudMsg(cloudAuthTokenMissingMessage(msg,"登录"))
                                     else if(pwdSecret.isBlank()) showCloudMsg("登录成功但无法从密码派生数据密钥")
                                     else {
                                         val ns=st.copyMut{
@@ -4444,10 +4485,10 @@ fun restoreCloudBackupById(st:App设置, backupId:Int, onResult:(Boolean,String)
                                     registerBusy=false
                                     if(ok){
                                         val obj=runCatching{ JSONObject(msg) }.getOrNull()
-                                        val token=obj?.optString("token","") ?: ""
+                                        val token=cloudAuthTokenFrom(msg)
                                         val privateKey=cleanCloudApiKey(obj?.optString("privateKey","") ?: "")
                                         val pwdSecret=runCatching{ deriveSimjCloudSecret(username,password) }.getOrDefault("")
-                                        if(token.isBlank()) showCloudMsg("注册成功但服务器未返回令牌")
+                                        if(token.isBlank()) showCloudMsg(cloudAuthTokenMissingMessage(msg,"注册"))
                                         else if(pwdSecret.isBlank()) showCloudMsg("注册成功但无法派生数据密钥")
                                         else {
                                             // 数据密钥=密码派生；私钥仅展示一次，用于忘记密码
@@ -4726,11 +4767,11 @@ Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(8.dp)){
                                     registerBusy=false
                                     if(ok){
                                         val obj=runCatching{ JSONObject(msg) }.getOrNull()
-                                        val token=obj?.optString("token","") ?: ""
+                                        val token=cloudAuthTokenFrom(msg)
                                         val privateKey=cleanCloudApiKey(obj?.optString("privateKey","") ?: "")
                                         val pwdSecret=runCatching{ deriveSimjCloudSecret(username,password) }.getOrDefault("")
                                         if(token.isBlank()){
-                                            showCloudMsg("注册成功但未返回令牌")
+                                            showCloudMsg(cloudAuthTokenMissingMessage(msg,"注册"))
                                         }else if(pwdSecret.isBlank()){
                                             showCloudMsg("注册成功但无法派生数据密钥")
                                         }else{
