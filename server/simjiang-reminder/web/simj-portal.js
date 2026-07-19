@@ -36,10 +36,28 @@
     for (let i = 0; i < arr.length; i++) bin += String.fromCharCode(arr[i]);
     return btoa(bin).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
   }
+  async function sha256Bytes(bytes) {
+    return new Uint8Array(await crypto.subtle.digest("SHA-256", bytes));
+  }
+  async function aesKeyBytesFromSecret(secret) {
+    let raw;
+    try {
+      raw = b64uToBytes(secret);
+    } catch (_) {
+      raw = new TextEncoder().encode(String(secret || ""));
+    }
+    if (raw.length === 16 || raw.length === 24 || raw.length === 32) return raw;
+    if (raw.length > 32) return raw.slice(0, 32);
+    if (!raw.length) throw new Error("empty vault key");
+    return sha256Bytes(raw);
+  }
   async function deriveSimjCloudSecret(username, password) {
     const saltSrc = new TextEncoder().encode("simj:e2ee:v1:" + String(username || "").trim().toLowerCase());
     const hash = await crypto.subtle.digest("SHA-256", saltSrc);
     const salt = new Uint8Array(hash).slice(0, 16);
+    return deriveSimjCloudSecretWithSalt(password, salt, SIMJ_ITER);
+  }
+  async function deriveSimjCloudSecretWithSalt(password, salt, iterations) {
     const material = await crypto.subtle.importKey(
       "raw",
       new TextEncoder().encode(password),
@@ -48,14 +66,32 @@
       ["deriveBits"]
     );
     const bits = await crypto.subtle.deriveBits(
-      { name: "PBKDF2", salt, iterations: SIMJ_ITER, hash: "SHA-256" },
+      { name: "PBKDF2", salt, iterations: Math.max(10000, Number(iterations || SIMJ_ITER)), hash: "SHA-256" },
       material,
       256
     );
     return bytesToB64u(new Uint8Array(bits));
   }
-  async function decryptVaultEnvelope(envelope, secretB64u) {
-    const keyBytes = b64uToBytes(secretB64u);
+  async function passwordVaultSecrets(username, password, envelope = {}) {
+    if (!password) return [];
+    const user = String(username || "").trim();
+    const out = [];
+    const add = (value) => {
+      if (value && !out.includes(value)) out.push(value);
+    };
+    add(await deriveSimjCloudSecret(user, password));
+    add(await deriveSimjCloudSecret(user.toLowerCase(), password));
+    if (envelope && envelope.salt) {
+      try {
+        add(await deriveSimjCloudSecretWithSalt(password, b64uToBytes(envelope.salt), envelope.iter || SIMJ_ITER));
+      } catch (_) {}
+    }
+    add(bytesToB64u(await sha256Bytes(new TextEncoder().encode(`${user.toLowerCase()}:${password}`))));
+    add(bytesToB64u(await sha256Bytes(new TextEncoder().encode(password))));
+    return out;
+  }
+  async function decryptVaultEnvelopeWithSecret(envelope, secretB64u, withAad = true) {
+    const keyBytes = await aesKeyBytesFromSecret(secretB64u);
     const key = await crypto.subtle.importKey("raw", keyBytes, "AES-GCM", false, ["decrypt"]);
     const nonce = b64uToBytes(envelope.nonce);
     const ct = b64uToBytes(envelope.ciphertext || envelope.cipherText || "");
@@ -64,11 +100,30 @@
     sealed.set(ct, 0);
     if (tag.length) sealed.set(tag, ct.length);
     const plain = await crypto.subtle.decrypt(
-      { name: "AES-GCM", iv: nonce, additionalData: SIMJ_AAD, tagLength: 128 },
+      withAad
+        ? { name: "AES-GCM", iv: nonce, additionalData: SIMJ_AAD, tagLength: 128 }
+        : { name: "AES-GCM", iv: nonce, tagLength: 128 },
       key,
       sealed
     );
     return JSON.parse(new TextDecoder().decode(plain));
+  }
+  async function decryptVaultEnvelope(envelope, secrets) {
+    const list = (Array.isArray(secrets) ? secrets : [secrets]).filter(Boolean);
+    let lastError = null;
+    for (const secret of [...new Set(list)]) {
+      try {
+        return await decryptVaultEnvelopeWithSecret(envelope, secret, true);
+      } catch (e) {
+        lastError = e;
+      }
+      try {
+        return await decryptVaultEnvelopeWithSecret(envelope, secret, false);
+      } catch (e) {
+        lastError = e;
+      }
+    }
+    throw lastError || new Error("vault decrypt failed");
   }
 
   /* ---------- styles ---------- */
@@ -659,18 +714,23 @@
 
   async function pullVaultIfPossible(username, password) {
     try {
-      let secret = sessionStorage.getItem("simj_vault_secret") || "";
+      const storedSecret = sessionStorage.getItem("simj_vault_secret") || "";
       const user = username || sessionStorage.getItem("simj_vault_user") || currentUsername || "";
-      if (password && user) {
-        secret = await deriveSimjCloudSecret(user, password);
-        sessionStorage.setItem("simj_vault_secret", secret);
-        sessionStorage.setItem("simj_vault_user", user);
-      }
-      if (!secret) return false;
       const sync = await api("GET", "/api/sync");
       const env = sync.encryptedVault || sync.envelope;
       if (!env || !env.ciphertext) return false;
-      const payload = await decryptVaultEnvelope(env, secret);
+      let secrets = [];
+      if (password && user) {
+        secrets = await passwordVaultSecrets(user, password, env);
+        if (secrets[0]) {
+          sessionStorage.setItem("simj_vault_secret", secrets[0]);
+          sessionStorage.setItem("simj_vault_user", user);
+        }
+      } else if (storedSecret) {
+        secrets = [storedSecret];
+      }
+      if (!secrets.length) return false;
+      const payload = await decryptVaultEnvelope(env, secrets);
       const records = Array.isArray(payload.records) ? payload.records : [];
       window.__SIMJ_VAULT_CARDS = cardsFromVaultRecords(records);
       rebuildCards();
