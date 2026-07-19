@@ -3556,15 +3556,15 @@ fun cleanCloudApiKey(raw:String):String {
 fun isValidCloudApiKey(key:String):Boolean = Regex("^[A-Za-z0-9_-]{24,128}$").matches(cleanCloudApiKey(key))
 fun cleanCloudUrl(raw:String):String = raw.trim().trimEnd('/')
 fun cleanBundledCloudUrl(raw:String):String {
-    val url=cleanCloudUrl(raw)
-    if(url.isBlank()) return DEFAULT_SIMJ_CLOUD_URL
+    val typed=cleanCloudUrl(raw)
+    if(typed.isBlank()) return DEFAULT_SIMJ_CLOUD_URL
+    val url=if(typed.contains("://")) typed else "http://$typed"
     return runCatching {
         val uri=URI(url)
         val scheme=uri.scheme?.lowercase()
         val host=uri.host ?: return@runCatching url
         val barePath=uri.rawPath.isNullOrBlank() || uri.rawPath=="/"
-        val ipv4=Regex("""\d{1,3}(\.\d{1,3}){3}""").matches(host)
-        if(scheme=="http" && ipv4 && uri.port<0 && barePath) {
+        if(scheme=="http" && uri.port<0 && barePath) {
             URI(scheme,uri.userInfo,host,8787,uri.rawPath,uri.rawQuery,uri.rawFragment).toString().trimEnd('/')
         } else url
     }.getOrDefault(url)
