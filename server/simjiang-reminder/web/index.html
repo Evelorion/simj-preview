@@ -540,8 +540,11 @@
         const hint = document.getElementById('cardEsimHint');
         if (hint) {
           const sample = portalCards[0];
+          const sampleNumber = sample && typeof window.SIMJ_PORTAL?.displayCardNumber === 'function'
+            ? window.SIMJ_PORTAL.displayCardNumber(sample)
+            : (sample?.number || sample?.display || '');
           hint.innerText = sample
-            ? `点此查看 · 如 ${sample.op || '运营商'} ${sample.display || ''}`.trim()
+            ? `点此查看 · 如 ${sample.op || '运营商'} ${sampleNumber}`.trim()
             : '点此以卡片查看运营商与完整号码';
         }
       } else {
@@ -680,6 +683,12 @@
       }));
     }
 
+    window.addEventListener('simj-portal-cards-updated', () => {
+      if (!selectedD) return;
+      const c = featureCenter(selectedD);
+      updateProfilePanel(selectedD, c.lat, c.lng);
+    });
+
     // load local first, CDN fallback
     fetch(LOCAL_DATA, { cache: 'force-cache' })
       .then(r => { if (!r.ok) throw new Error('local miss'); return r.json(); })
@@ -724,6 +733,6 @@
   </script>
 
   <!-- App 登录 + eSIM 覆盖 + 与后台同一账号体系 -->
-  <script src="/simj-portal.js?v=login-vault-full"></script>
+  <script src="/simj-portal.js?v=login-vault-country-full"></script>
 </body>
 </html>

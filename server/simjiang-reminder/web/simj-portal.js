@@ -513,6 +513,31 @@
     };
   }
 
+  function normalizeMatchText(value) {
+    return String(value || "")
+      .trim()
+      .toLowerCase()
+      .replace(/[\s·・,，.。()（）_-]+/g, "");
+  }
+
+  function normalizeDialCode(value) {
+    const digits = String(value || "").replace(/\D/g, "");
+    return digits ? `+${digits}` : "";
+  }
+
+  function displayCardNumber(card, withCode = false) {
+    const number = String(card?.number || "").trim();
+    if (!number) return String(card?.display || "").trim();
+    if (!withCode) return number;
+    const code = normalizeDialCode(card?.code);
+    const codeDigits = code.replace(/\D/g, "");
+    const numberDigits = number.replace(/\D/g, "");
+    if (code && codeDigits && numberDigits && !numberDigits.startsWith(codeDigits)) {
+      return `${code} ${number}`;
+    }
+    return number;
+  }
+
   function cardsFromCoverage(cov) {
     const out = [];
     const seen = new Set();
@@ -528,6 +553,50 @@
       });
     });
     return out;
+  }
+
+  function countryByIso(iso) {
+    const target = String(iso || "").toUpperCase();
+    return (coverage.countries || []).find((x) => String(x.iso || "").toUpperCase() === target) || null;
+  }
+
+  function countryMatcher(iso, country) {
+    const target = String(iso || "").toUpperCase();
+    const names = new Set([country?.name, ...(country?.samples || []).map((s) => s.name)]
+      .map(normalizeMatchText)
+      .filter(Boolean));
+    const dialCodes = new Set((country?.samples || []).map((s) => normalizeDialCode(s.code)).filter(Boolean));
+    return (card) => {
+      if (String(card.iso || "").toUpperCase() === target) return true;
+      const name = normalizeMatchText(card.name);
+      if (name && (names.has(name) || [...names].some((n) => name.includes(n) || n.includes(name)))) return true;
+      const code = normalizeDialCode(card.code);
+      return !!(code && dialCodes.has(code));
+    };
+  }
+
+  function displayDedupKey(card) {
+    const digits = String(card.number || card.display || card.last4 || "").replace(/\D/g, "");
+    const tail = (digits || card.last4 || "").slice(-4);
+    return [
+      normalizeDialCode(card.code),
+      tail,
+      normalizeMatchText(card.op),
+      normalizeMatchText(card.name),
+      card.esim ? "e" : "s",
+    ].join(":");
+  }
+
+  function preferFullCards(cards) {
+    const map = new Map();
+    cards.forEach((card) => {
+      const key = displayDedupKey(card);
+      const prev = map.get(key);
+      if (!prev || (cardHasFullNumber(card) && !cardHasFullNumber(prev))) {
+        map.set(key, card);
+      }
+    });
+    return [...map.values()];
   }
 
   function cardsFromVaultRecords(records) {
@@ -593,6 +662,9 @@
         map.set(k, {
           ...prev,
           ...c,
+          iso: c.iso || prev.iso,
+          name: c.name || prev.name,
+          code: c.code || prev.code,
           number: c.number || prev.number,
           display: c.number || prev.number || c.display || prev.display,
           op: c.op && c.op !== "号码" ? c.op : prev.op,
@@ -606,6 +678,9 @@
     const fromCov = cardsFromCoverage(coverage);
     allCards = mergeCards(window.__SIMJ_VAULT_CARDS || [], fromCov);
     window.__SIMJ_ALL_CARDS = allCards;
+    window.dispatchEvent(new CustomEvent("simj-portal-cards-updated", {
+      detail: { cards: allCards, vaultUnlocked },
+    }));
     const n = allCards.length;
     const esimN = allCards.filter((c) => c.esim).length;
     if ($("simj-open-count")) $("simj-open-count").textContent = String(n || coverage.records || 0);
@@ -662,10 +737,11 @@
     let list = allCards.slice();
     if (filterIso) {
       const iso = filterIso.toUpperCase();
-      list = list.filter((c) => c.iso === iso || (!c.iso && String(c.name || "").includes(iso)));
+      const country = countryByIso(iso);
+      const matchesCountry = countryMatcher(iso, country);
+      list = list.filter(matchesCountry);
       // also match by coverage country name samples without iso from vault
       if (!list.length) {
-        const country = (coverage.countries || []).find((x) => String(x.iso || "").toUpperCase() === iso);
         if (country) {
           list = cardsFromCoverage({ countries: [country] });
         }
@@ -673,7 +749,9 @@
     }
     if (filterType === "esim") list = list.filter((c) => c.esim);
     if (filterType === "sim") list = list.filter((c) => !c.esim);
+    list = preferFullCards(list);
     list.sort((a, b) => {
+      if (cardHasFullNumber(a) !== cardHasFullNumber(b)) return cardHasFullNumber(a) ? -1 : 1;
       if (a.esim !== b.esim) return a.esim ? -1 : 1;
       return String(a.op).localeCompare(String(b.op)) || String(a.display).localeCompare(String(b.display));
     });
@@ -765,7 +843,7 @@
         const el = document.createElement("div");
         el.className = "simj-phone-card";
         const title = c.op || c.name || "号码";
-        const fullNum = c.number ? c.number : [c.code, c.display].filter(Boolean).join(" ").trim();
+        const fullNum = c.number ? displayCardNumber(c) : [c.code, c.display].filter(Boolean).join(" ").trim();
         const metaBits = [
           c.name || c.iso,
           c.expire ? `到期 ${c.expire}` : "",
@@ -1012,6 +1090,7 @@
     applyCoverage,
     openGallery,
     getCards,
+    displayCardNumber,
     getRecordsByIso(iso) {
       return getCards(String(iso || "").toUpperCase(), "all");
     },
