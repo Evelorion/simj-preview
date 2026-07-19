@@ -1,11 +1,17 @@
 const { Client } = require("ssh2");
+const HOST = process.env.SIMJ_HOST;
+const USER = process.env.SIMJ_USER;
 const PASS = process.env.SIMJ_PASS;
 if (!PASS) {
   console.error("Set SIMJ_PASS in the environment before running this check");
   process.exit(1);
 }
-if (!process.env.SIMJ_HOST) {
+if (!HOST) {
   console.error("Set SIMJ_HOST in the environment before running this check");
+  process.exit(1);
+}
+if (!USER) {
+  console.error("Set SIMJ_USER in the environment before running this check");
   process.exit(1);
 }
 
@@ -51,9 +57,9 @@ conn
     process.exit(1);
   })
   .connect({
-    host: process.env.SIMJ_HOST,
+    host: HOST,
     port: 22,
-    username: process.env.SIMJ_USER || "root",
+    username: USER,
     password: PASS,
     readyTimeout: 30000,
   });

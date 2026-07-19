@@ -97,7 +97,7 @@ http://<your-server-ip>:8787/admin
 cd server/simjiang-reminder
 npm install
 export SIMJ_HOST="<your-server-ip-or-domain>"
-export SIMJ_USER="root"
+export SIMJ_USER="<your-ssh-user>"
 export SIMJ_PASS="<your-ssh-password>"
 
 node deploy.js

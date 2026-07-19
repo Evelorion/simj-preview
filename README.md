@@ -9,19 +9,22 @@ DsimJ — SIM 卡 & eSIM 全能管家。
 以下为示例预览图，不包含维护者服务器地址、真实号码或部署凭据。
 
 <p align="center">
-  <img src="docs/images/app-preview.png" alt="DsimJ Android App preview" width="760">
+  <img src="docs/images/app-sim-cards.png" alt="DsimJ Android SIM card list" width="280">
+  <img src="docs/images/app-esim-editor.png" alt="DsimJ Android eSIM editor" width="280">
+  <img src="docs/images/app-settings.png" alt="DsimJ Android settings" width="280">
 </p>
 
 <p align="center">
-  <img src="docs/images/web-globe.png" alt="DsimJ Web globe preview" width="760">
+  <img src="docs/images/app-map-globe.png" alt="DsimJ Android coverage globe" width="280">
+  <img src="docs/images/app-map-sheet.png" alt="DsimJ Android coverage countries" width="280">
 </p>
 
 <p align="center">
-  <img src="docs/images/web-profile.png" alt="DsimJ country profile panel" width="760">
+  <img src="docs/images/web-country-profile.png" alt="DsimJ Web country profile" width="760">
 </p>
 
 <p align="center">
-  <img src="docs/images/web-admin.png" alt="DsimJ admin console preview" width="760">
+  <img src="docs/images/web-number-gallery.png" alt="DsimJ Web number gallery" width="760">
 </p>
 
 ## 开发接手
@@ -67,7 +70,7 @@ gradle assembleRelease --no-daemon --max-workers=1
 
 ## 下载
 
-[Latest Release](https://github.com/yanglh1/simj-preview/releases)
+[Latest Release](https://github.com/Evelorion/simj-preview/releases)
 
 ---
 

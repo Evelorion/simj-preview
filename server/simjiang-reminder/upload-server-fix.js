@@ -2,7 +2,7 @@
 const path = require("path");
 const { Client } = require("ssh2");
 const HOST = process.env.SIMJ_HOST;
-const USER = process.env.SIMJ_USER || "root";
+const USER = process.env.SIMJ_USER;
 const PASS = process.env.SIMJ_PASS;
 if (!PASS) {
   console.error("Set SIMJ_PASS in the environment before uploading");
@@ -10,6 +10,10 @@ if (!PASS) {
 }
 if (!HOST) {
   console.error("Set SIMJ_HOST in the environment before uploading");
+  process.exit(1);
+}
+if (!USER) {
+  console.error("Set SIMJ_USER in the environment before uploading");
   process.exit(1);
 }
 const conn = new Client();

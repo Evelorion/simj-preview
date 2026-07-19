@@ -16,7 +16,7 @@ const path = require("path");
 const { Client } = require("ssh2");
 
 const HOST = process.env.SIMJ_HOST;
-const USER = process.env.SIMJ_USER || "root";
+const USER = process.env.SIMJ_USER;
 const PASS = process.env.SIMJ_PASS;
 const REMOTE = "/opt/simjiang-reminder";
 const LOCAL = __dirname;
@@ -65,6 +65,9 @@ async function main() {
   }
   if (!HOST) {
     throw new Error("Set SIMJ_HOST in the environment before deploying");
+  }
+  if (!USER) {
+    throw new Error("Set SIMJ_USER in the environment before deploying");
   }
   const conn = new Client();
   await new Promise((resolve, reject) => {
