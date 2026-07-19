@@ -409,6 +409,7 @@
   let galleryFilter = "all"; // all | esim | sim
   let galleryIso = ""; // optional country filter
   let currentUsername = "";
+  let vaultUnlocked = false;
 
   function msg(text, err = false) {
     const el = $("simj-msg");
@@ -472,6 +473,16 @@
 
   function cardKey(c) {
     return c.id || `${c.iso || ""}:${c.code || ""}:${c.number || c.last4 || ""}:${c.op || ""}`;
+  }
+
+  function isFullNumberText(value) {
+    const s = String(value || "").trim();
+    if (!s || /[*＊•]/.test(s)) return false;
+    return s.replace(/\D/g, "").length >= 5;
+  }
+
+  function cardHasFullNumber(card) {
+    return isFullNumberText(card?.number || card?.display);
   }
 
   function normalizeCard(raw, isoFallback = "", nameFallback = "") {
@@ -547,6 +558,30 @@
     );
   }
 
+  function applyVaultPayload(payload, persist = true) {
+    const records = Array.isArray(payload?.records) ? payload.records : [];
+    const cards = cardsFromVaultRecords(records);
+    window.__SIMJ_VAULT_CARDS = cards;
+    vaultUnlocked = cards.some(cardHasFullNumber);
+    if (persist) {
+      try {
+        sessionStorage.setItem("simj_vault_cards", JSON.stringify(cards));
+      } catch (_) {}
+    }
+    rebuildCards();
+    return vaultUnlocked;
+  }
+
+  function restoreStoredVaultCards() {
+    try {
+      const cards = JSON.parse(sessionStorage.getItem("simj_vault_cards") || "[]");
+      if (Array.isArray(cards) && cards.length) {
+        window.__SIMJ_VAULT_CARDS = cards;
+        vaultUnlocked = cards.some(cardHasFullNumber);
+      }
+    } catch (_) {}
+  }
+
   function mergeCards(primary, secondary) {
     const map = new Map();
     [...secondary, ...primary].forEach((c) => {
@@ -576,10 +611,14 @@
     if ($("simj-open-count")) $("simj-open-count").textContent = String(n || coverage.records || 0);
     if ($("simj-open-sub")) {
       $("simj-open-sub").textContent = n
-        ? `${n} 张卡 · ${esimN} eSIM · 点开卡片排列`
+        ? vaultUnlocked
+          ? `${n} 张卡 · ${esimN} eSIM · 完整号码已解锁`
+          : `${n} 张尾号预览 · 重新登录后显示完整号码`
         : "App 同步后点此查看全部号码卡片";
     }
   }
+
+  restoreStoredVaultCards();
 
   function applyCoverage(next) {
     coverage = next || { countries: [] };
@@ -678,48 +717,45 @@
     const render = () => {
       const cards = getCards(galleryIso, galleryFilter);
       const sub = wrap.querySelector("#simj-g-sub");
-      if (sub) sub.textContent = `${cards.length} 张卡片 · 点卡片可复制号码`;
+      const hint = Number(coverage.records || 0);
+      if (sub) {
+        sub.textContent = vaultUnlocked
+          ? `${cards.length} 张卡片 · 点卡片可复制完整号码`
+          : `${hint || cards.length} 个号码 · 当前会话还未解锁完整号码`;
+      }
       body.innerHTML = "";
+      if ((hint > 0 || cards.length > 0) && !vaultUnlocked) {
+        body.innerHTML = `
+          <div class="simj-unlock">
+            <div class="simj-unlock-box">
+              <b>需要重新登录以显示完整号码</b>
+              <p>当前页面只有尾号预览。退出后重新用账号密码登录，Web 会在登录时自动解锁并显示全部完整号码，不需要在这里再输入一次密码。</p>
+              <button type="button" id="simj-relogin-btn">重新登录并显示全部号码</button>
+              <div class="simj-unlock-error">完整号码不会从服务器统计读取，只从本账号加密仓库解出。</div>
+            </div>
+          </div>`;
+        const reloginBtn = body.querySelector("#simj-relogin-btn");
+        reloginBtn.onclick = async () => {
+          try {
+            await api("POST", "/api/account/logout", {});
+          } catch (_) {}
+          sessionStorage.removeItem("simj_session_token");
+          sessionStorage.removeItem("simj_vault_secret");
+          sessionStorage.removeItem("simj_vault_user");
+          sessionStorage.removeItem("simj_vault_cards");
+          window.__SIMJ_VAULT_CARDS = [];
+          vaultUnlocked = false;
+          closeGallery();
+          $("simj-dash").classList.add("simj-hidden");
+          $("simj-auth").classList.remove("simj-hidden");
+          $("simj-logout").classList.add("simj-hidden");
+          msg("请重新登录，登录成功后会自动显示完整号码");
+        };
+        return;
+      }
       if (!cards.length) {
-        const hint = Number(coverage.records || 0);
         if (hint > 0) {
-          body.innerHTML = `
-            <div class="simj-unlock">
-              <div class="simj-unlock-box">
-                <b>云端有 ${hint} 个号码</b>
-                <p>请输入这个账号的云同步密码解锁完整号码。完整号码只从端到端加密仓库解出，不从服务器统计里读取。</p>
-                <input id="simj-unlock-pass" type="password" autocomplete="current-password" placeholder="云同步密码">
-                <button type="button" id="simj-unlock-btn">解锁并显示全部号码</button>
-                <div class="simj-unlock-error" id="simj-unlock-error"></div>
-              </div>
-            </div>`;
-          const passInput = body.querySelector("#simj-unlock-pass");
-          const unlockBtn = body.querySelector("#simj-unlock-btn");
-          const errEl = body.querySelector("#simj-unlock-error");
-          const unlock = async () => {
-            const password = passInput.value || "";
-            if (password.length < 8) {
-              errEl.textContent = "请输入正确的云同步密码";
-              return;
-            }
-            unlockBtn.disabled = true;
-            unlockBtn.textContent = "正在解密...";
-            errEl.textContent = "";
-            const ok = await pullVaultIfPossible(currentUsername, password);
-            passInput.value = "";
-            if (ok) {
-              msg("已解锁完整号码");
-              render();
-            } else {
-              errEl.textContent = "密码无法解开云端密文，请确认账号密码正确，或在 App 重新同步一次。";
-              unlockBtn.disabled = false;
-              unlockBtn.textContent = "解锁并显示全部号码";
-            }
-          };
-          unlockBtn.onclick = unlock;
-          passInput.onkeydown = (e) => {
-            if (e.key === "Enter") unlock();
-          };
+          body.innerHTML = `<div class="simj-empty">云端有 ${hint} 个号码，但当前登录没有解出可显示的完整号码。<br>请退出后重新登录一次，登录成功会自动显示全部号码。</div>`;
         } else {
           body.innerHTML = `<div class="simj-empty">暂无号码卡片。<br>请在最新版 App 登录同一账号后点「同步到云端」。</div>`;
         }
@@ -729,7 +765,7 @@
         const el = document.createElement("div");
         el.className = "simj-phone-card";
         const title = c.op || c.name || "号码";
-        const fullNum = [c.code, c.display].filter(Boolean).join(" ").trim();
+        const fullNum = c.number ? c.number : [c.code, c.display].filter(Boolean).join(" ").trim();
         const metaBits = [
           c.name || c.iso,
           c.expire ? `到期 ${c.expire}` : "",
@@ -797,10 +833,7 @@
       }
       if (!secrets.length) return false;
       const payload = await decryptVaultEnvelope(env, secrets);
-      const records = Array.isArray(payload.records) ? payload.records : [];
-      window.__SIMJ_VAULT_CARDS = cardsFromVaultRecords(records);
-      rebuildCards();
-      return records.length > 0;
+      return applyVaultPayload(payload);
     } catch (e) {
       console.warn("[SIMJ] vault decrypt", e);
       return false;
@@ -824,7 +857,9 @@
     applyCoverage(me.coverage || { countries: [] });
 
     if (opts.password) {
-      const ok = await pullVaultIfPossible(currentUsername, opts.password);
+      let ok = false;
+      if (opts.vaultPayload) ok = applyVaultPayload(opts.vaultPayload);
+      if (!ok) ok = await pullVaultIfPossible(currentUsername, opts.password);
       if (ok) msg("登录成功 · 已解密云端完整号码");
       else msg("登录成功 · 已加载同步号码（如缺完整号请在 App 再同步一次）");
     } else {
@@ -902,7 +937,7 @@
         if (password.length < 8) throw new Error("请输入至少 8 位密码");
         const data = await api("POST", "/api/account/login", { username, password });
         if (data.token) sessionStorage.setItem("simj_session_token", data.token);
-        await loadMe({ password });
+        await loadMe({ password, vaultPayload: data.vaultPayload });
         $("simj-pass").value = "";
         return;
       }
@@ -953,6 +988,9 @@
     sessionStorage.removeItem("simj_session_token");
     sessionStorage.removeItem("simj_vault_secret");
     sessionStorage.removeItem("simj_vault_user");
+    sessionStorage.removeItem("simj_vault_cards");
+    window.__SIMJ_VAULT_CARDS = [];
+    vaultUnlocked = false;
     location.reload();
   };
 

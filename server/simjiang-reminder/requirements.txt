@@ -1,2 +1,3 @@
-# Zero hard dependencies for runtime.
-# Optional: cryptography was used by legacy server-side decrypt paths — no longer required for v6 E2EE.
+# Required for Web login-time vault unlock over plain HTTP deployments.
+# The server uses it only transiently during account login; passwords/plaintext are not stored.
+cryptography>=42.0.0

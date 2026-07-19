@@ -6,7 +6,10 @@ Security model
 --------------
 * Login password: PBKDF2 hash stored server-side (login only).
 * Vault crypto (App/Web): AES-256-GCM key derived from ACCOUNT PASSWORD
-  (PBKDF2 310000, salt from username). Server NEVER decrypts vault.
+  (PBKDF2 310000, salt from username). Native App decrypts locally; Web login
+  may transiently decrypt the owner's vault from the submitted login password
+  so plain HTTP deployments can still show full numbers. Password/plaintext are
+  not stored, and admin endpoints never expose vault plaintext.
 * privateKey: random, shown ONCE at register; only SHA-256 stored.
   Used ONLY for password-reset identity — NOT for vault encryption.
 * coverage_json: per-account map metadata + optional number card samples
@@ -73,6 +76,121 @@ def password_hash(password: str, salt: str | None = None):
 def verify_password(password: str, salt: str, expected: str) -> bool:
     _, actual = password_hash(password, salt)
     return hmac.compare_digest(actual, expected or "")
+
+
+def b64url_decode(text: str) -> bytes:
+    import base64
+
+    s = str(text or "").replace("-", "+").replace("_", "/")
+    return base64.b64decode(s + "=" * (-len(s) % 4))
+
+
+def b64url_encode(raw: bytes) -> str:
+    import base64
+
+    return base64.urlsafe_b64encode(raw).decode("ascii").rstrip("=")
+
+
+def vault_salt(username: str) -> bytes:
+    return hashlib.sha256(("simj:e2ee:v1:" + str(username or "").strip().lower()).encode("utf-8")).digest()[:16]
+
+
+def vault_secret_b64(username: str, password: str, salt: bytes | None = None, iterations: int = 310_000) -> str:
+    raw = hashlib.pbkdf2_hmac(
+        "sha256",
+        str(password or "").encode("utf-8"),
+        salt if salt is not None else vault_salt(username),
+        max(10_000, int(iterations or 310_000)),
+        dklen=32,
+    )
+    return b64url_encode(raw)
+
+
+def aes_key_from_secret(secret: str) -> bytes:
+    try:
+        raw = b64url_decode(secret)
+    except Exception:
+        raw = str(secret or "").encode("utf-8")
+    if len(raw) in (16, 24, 32):
+        return raw
+    if len(raw) > 32:
+        return raw[:32]
+    if not raw:
+        raise ValueError("empty vault key")
+    return hashlib.sha256(raw).digest()
+
+
+def vault_key_candidates(username: str, password: str, envelope: dict) -> list[bytes]:
+    user = str(username or "").strip()
+    candidates: list[str] = []
+
+    def add(value: str):
+        if value and value not in candidates:
+            candidates.append(value)
+
+    add(vault_secret_b64(user, password))
+    add(vault_secret_b64(user.lower(), password))
+    salt_text = str((envelope or {}).get("salt") or "")
+    if salt_text:
+        try:
+            add(vault_secret_b64(user, password, b64url_decode(salt_text), int(envelope.get("iter") or 310_000)))
+        except Exception:
+            pass
+    add(b64url_encode(hashlib.sha256((user.lower() + ":" + str(password or "")).encode("utf-8")).digest()))
+    add(b64url_encode(hashlib.sha256(str(password or "").encode("utf-8")).digest()))
+    out: list[bytes] = []
+    seen: set[bytes] = set()
+    for secret in candidates:
+        try:
+            key = aes_key_from_secret(secret)
+        except Exception:
+            continue
+        if key not in seen:
+            seen.add(key)
+            out.append(key)
+    return out
+
+
+def decrypt_vault_payload(envelope: dict, username: str, password: str) -> dict | None:
+    if not isinstance(envelope, dict) or not password:
+        return None
+    try:
+        from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+    except Exception:
+        return None
+    nonce = b64url_decode(str(envelope.get("nonce") or ""))
+    ciphertext = b64url_decode(str(envelope.get("ciphertext") or envelope.get("cipherText") or ""))
+    tag = b64url_decode(str(envelope.get("tag") or ""))
+    sealed = ciphertext + tag
+    for key in vault_key_candidates(username, password, envelope):
+        aes = AESGCM(key)
+        for aad in (b"simj:e2ee:v1", None):
+            try:
+                plain = aes.decrypt(nonce, sealed, aad)
+                payload = json.loads(plain.decode("utf-8"))
+                if isinstance(payload, dict):
+                    return payload
+            except Exception:
+                continue
+    return None
+
+
+def login_vault_payload(account_id: str, username: str, password: str) -> dict | None:
+    conn = db()
+    try:
+        row = conn.execute(
+            "SELECT envelope FROM encrypted_sync WHERE account_id=?",
+            (account_id,),
+        ).fetchone()
+        if not row:
+            return None
+        try:
+            envelope = json.loads(row["envelope"] or "{}")
+        except Exception:
+            return None
+        return decrypt_vault_payload(envelope, username, password)
+    finally:
+        conn.close()
 
 
 def private_key_hash(private_key: str) -> str:
@@ -1256,15 +1374,19 @@ class H(BaseHTTPRequestHandler):
             )
 
         if path == "/api/account/login":
-            ok, msg, data = login_account(payload.get("username"), payload.get("password"))
+            login_password = payload.get("password")
+            ok, msg, data = login_account(payload.get("username"), login_password)
             if not ok:
                 return self._json(401, {"ok": False, "message": msg})
+            vault_payload = login_vault_payload(data["accountId"], data["username"], login_password)
             return self._json(
                 200,
                 {
                     "ok": True,
                     "message": msg,
                     "token": data["token"],
+                    "vaultPayload": vault_payload,
+                    "vaultRecords": len(vault_payload.get("records") or []) if isinstance(vault_payload, dict) else 0,
                     "user": {
                         "username": data["username"],
                         "role": data["role"],
