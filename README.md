@@ -76,9 +76,10 @@ gradle assembleRelease --no-daemon --max-workers=1
 
 ## 云同步后端 — 自建教程
 
-后端位于 [server/simjiang-reminder](server/simjiang-reminder)。完整搭建、VPS 推荐配置、HTTPS、备份、安全注意事项见：
+后端位于 [server/simjiang-reminder](server/simjiang-reminder)。部署时先看快速版，再看完整文档：
 
-**→ [server/simjiang-reminder/README.md](server/simjiang-reminder/README.md)**
+- **快速部署**：[simjiang-reminder-deploy-guide.md](simjiang-reminder-deploy-guide.md)
+- **完整文档**：[server/simjiang-reminder/README.md](server/simjiang-reminder/README.md)
 
 简要要求：
 
@@ -86,6 +87,7 @@ gradle assembleRelease --no-daemon --max-workers=1
 |------|------|
 | 系统 | Debian 12 / Ubuntu 22.04+ |
 | Python | 3.10+ |
+| 依赖 | `python3-venv` + `cryptography` |
 | 端口 | 默认 8787，可用反代隐藏 |
 | VPS | 1 vCPU / 1 GB RAM / 10 GB SSD 起步 |
 

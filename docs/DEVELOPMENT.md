@@ -52,7 +52,7 @@ simj-preview/
 │       └── assets/                   # 卡面图等
 ├── server/simjiang-reminder/         # 云端唯一服务
 │   ├── server.py                     # HTTP API + 静态文件 + SQLite
-│   ├── requirements.txt              # 标准库为主，无强制第三方
+│   ├── requirements.txt              # Python 依赖（cryptography）
 │   ├── simjiang-reminder.service     # systemd 单元模板
 │   ├── web/
 │   │   ├── index.html                # 地球壳 + 国家资料面板
@@ -160,8 +160,8 @@ export SIMJ_BASE=/opt/simjiang-reminder   # 可选，默认即此
 export SIMJ_HOST=0.0.0.0
 export SIMJ_PORT=8787
 cd /opt/simjiang-reminder
-python3 server.py
-# 或 systemd: simjiang-reminder.service
+.venv/bin/python server.py
+# 线上建议用 systemd: simjiang-reminder.service
 ```
 
 - 单文件 `ThreadingHTTPServer` + `BaseHTTPRequestHandler`。
@@ -477,7 +477,7 @@ eSIM 判定（coverage）：`cardType/note/tags` 含 esim，或 eid/smdp/activat
 cd server/simjiang-reminder
 node upload-fix.js    # 或自写 sftp 脚本
 # 若改了 server.py
-# 重启 python 进程 / systemd
+systemctl restart simjiang-reminder
 ```
 
 ---

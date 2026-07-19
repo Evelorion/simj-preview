@@ -28,86 +28,153 @@ server.py                    后端 API + 静态文件服务
 web/                         用户地图、登录门户、管理后台
 backup.sh                    SQLite 备份脚本
 simjiang-reminder.service    systemd 服务模板
-requirements.txt             运行时说明；当前无强制 Python 依赖
+requirements.txt             Python 运行依赖，当前包含 cryptography
 deploy*.js / upload*.js      可选 SSH 部署脚本，必须通过环境变量传入主机信息
 ```
 
-## 端口与路径
+## 部署总览
 
-默认路径和端口：
+推荐把后端部署到 VPS 的固定目录：
 
 ```text
 /opt/simjiang-reminder
+```
+
+默认监听端口：
+
+```text
 0.0.0.0:8787
 ```
 
-可以通过环境变量调整：
-
-```bash
-SIMJ_BASE=/opt/simjiang-reminder
-SIMJ_HOST=0.0.0.0
-SIMJ_PORT=8787
-```
-
-如果放到公网，推荐让 Python 只监听 `127.0.0.1:8787`，再用 Nginx/Caddy 反向代理到 HTTPS。
-
-## 一键式手动部署
-
-以下命令假设你已经把仓库上传或克隆到 VPS。
-
-```bash
-sudo apt update
-sudo apt install -y python3 rsync
-
-sudo install -d -m 700 /opt/simjiang-reminder
-sudo rsync -a --delete \
-  --exclude 'node_modules' \
-  server/simjiang-reminder/server.py \
-  server/simjiang-reminder/backup.sh \
-  server/simjiang-reminder/requirements.txt \
-  server/simjiang-reminder/web \
-  /opt/simjiang-reminder/
-
-sudo chmod +x /opt/simjiang-reminder/backup.sh
-sudo cp server/simjiang-reminder/simjiang-reminder.service /etc/systemd/system/simjiang-reminder.service
-sudo systemctl daemon-reload
-sudo systemctl enable --now simjiang-reminder
-```
-
-验证：
-
-```bash
-systemctl status simjiang-reminder --no-pager
-curl http://127.0.0.1:8787/api/status
-curl http://127.0.0.1:8787/api/public-settings
-```
-
-打开页面：
+部署完成后会得到两个页面：
 
 ```text
 http://<your-server-ip>:8787/
 http://<your-server-ip>:8787/admin
 ```
 
-## 可选：使用部署脚本
+生产环境建议再绑定域名并用 HTTPS：
 
-部署脚本只适合你完全信任当前仓库和目标 VPS 时使用。不要把 SSH 密码写进脚本或提交到 Git。
-
-```bash
-cd server/simjiang-reminder
-npm install
-export SIMJ_HOST="<your-server-ip-or-domain>"
-export SIMJ_USER="<your-ssh-user>"
-export SIMJ_PASS="<your-ssh-password>"
-
-node deploy.js
+```text
+https://your-domain.example/
+https://your-domain.example/admin
 ```
 
-如果使用 SSH key，建议自行改成 key 登录，或直接用上面的手动部署命令。开源仓库中不应出现真实 IP、SSH 用户密码、token、证书私钥或数据库文件。
+完整流程是：
 
-## HTTPS 反向代理
+1. 准备 VPS。
+2. 把仓库代码放到 VPS。
+3. 复制 `server/simjiang-reminder` 到 `/opt/simjiang-reminder`。
+4. 创建 Python venv 并安装依赖。
+5. 安装 systemd 服务并启动。
+6. 验证 API、网页和管理后台。
+7. 在 App 里填写你的服务地址。
 
-Nginx 示例：
+## 1. 准备 VPS
+
+在 VPS 上执行：
+
+```bash
+sudo apt update
+sudo apt install -y git rsync curl python3 python3-venv python3-pip
+```
+
+放行端口：
+
+- 测试直连：放行 `8787/tcp`。
+- 正式 HTTPS：只放行 `80/tcp` 和 `443/tcp`，让 Nginx/Caddy 反代到本机 `8787`。
+
+## 2. 获取代码
+
+方式 A：在 VPS 上直接克隆你的 fork。
+
+```bash
+cd ~
+git clone https://github.com/<your-github-user>/simj-preview.git
+cd ~/simj-preview
+```
+
+方式 B：从本地上传仓库到 VPS。只要最终 VPS 上有完整仓库目录即可，下面都假设当前目录是仓库根目录。
+
+## 3. 安装后端文件
+
+这些命令只复制后端需要的文件，不会清空线上 `data.db` 或 `backups/`：
+
+```bash
+sudo install -d -m 750 /opt/simjiang-reminder
+sudo install -d -m 750 /opt/simjiang-reminder/web
+
+sudo rsync -a \
+  server/simjiang-reminder/server.py \
+  server/simjiang-reminder/backup.sh \
+  server/simjiang-reminder/requirements.txt \
+  server/simjiang-reminder/simjiang-reminder.service \
+  /opt/simjiang-reminder/
+
+sudo rsync -a --delete \
+  server/simjiang-reminder/web/ \
+  /opt/simjiang-reminder/web/
+
+sudo chmod +x /opt/simjiang-reminder/backup.sh
+```
+
+## 4. 安装 Python 依赖
+
+后端使用标准库提供 HTTP 服务，并通过 `cryptography` 支持 Web 登录时的 vault 解密兼容逻辑。用 venv 安装最干净：
+
+```bash
+sudo python3 -m venv /opt/simjiang-reminder/.venv
+sudo /opt/simjiang-reminder/.venv/bin/python -m pip install --upgrade pip
+sudo /opt/simjiang-reminder/.venv/bin/pip install -r /opt/simjiang-reminder/requirements.txt
+```
+
+## 5. 安装并启动 systemd 服务
+
+```bash
+sudo cp /opt/simjiang-reminder/simjiang-reminder.service /etc/systemd/system/simjiang-reminder.service
+sudo systemctl daemon-reload
+sudo systemctl enable --now simjiang-reminder
+```
+
+检查运行状态：
+
+```bash
+sudo systemctl status simjiang-reminder --no-pager
+curl http://127.0.0.1:8787/api/status
+curl http://127.0.0.1:8787/api/public-settings
+```
+
+正常时 `/api/status` 会返回 JSON，服务状态应为 `active (running)`。
+
+## 6. 打开网页
+
+测试环境可以直接访问：
+
+```text
+http://<your-server-ip>:8787/
+http://<your-server-ip>:8787/admin
+```
+
+如果打不开，先检查三件事：
+
+```bash
+sudo systemctl status simjiang-reminder --no-pager
+sudo journalctl -u simjiang-reminder -n 80 --no-pager
+curl http://127.0.0.1:8787/api/status
+```
+
+本机 `curl` 正常但公网打不开，通常是 VPS 防火墙或云厂商安全组没放行端口。
+
+## 7. 配置 HTTPS
+
+正式使用建议走 HTTPS。先安装 Nginx 和 Certbot：
+
+```bash
+sudo apt install -y nginx certbot python3-certbot-nginx
+sudo certbot --nginx -d your-domain.example
+```
+
+Nginx 反代配置示例：
 
 ```nginx
 server {
@@ -134,15 +201,107 @@ server {
 }
 ```
 
-如果使用反代，建议把 systemd 中的 `SIMJ_HOST` 改成 `127.0.0.1`，防火墙只开放 80/443。
+使用反代后，建议只让后端监听本机地址：
 
-## 首次使用
+```bash
+sudo systemctl edit simjiang-reminder
+```
+
+填入：
+
+```ini
+[Service]
+Environment=SIMJ_HOST=127.0.0.1
+```
+
+然后重启：
+
+```bash
+sudo systemctl daemon-reload
+sudo systemctl restart simjiang-reminder
+```
+
+## 8. App 端怎么填
+
+在 App 里打开：
+
+```text
+设置 -> 云端数据与备份 / 云同步
+```
+
+服务地址填写：
+
+```text
+https://your-domain.example
+```
+
+测试直连可以填：
+
+```text
+http://<your-server-ip>:8787
+```
+
+不要填写 `/admin`，也不要填写 `/api/status`，只填服务根地址。
+
+## 9. 首次使用
 
 1. 打开 `https://your-domain.example/` 或 `http://<your-server-ip>:8787/`。
 2. 注册第一个账号。第一个账号会自动成为 `owner`。
 3. 立即保存注册时显示的一次性 `privateKey`。它只用于忘记密码重置。
-4. 在 App 的云同步设置中填写你的服务地址并登录同一账号。
+4. 在 App 云同步里填写同一个服务地址，登录同一账号。
 5. 点击同步。App 会上传密文 `encryptedVault` 和 coverage 元数据。
+6. 在 Web 登录同一账号，能看到国家覆盖和号码卡片，说明 App/Web/后端链路正常。
+
+## 10. 后续更新
+
+以后更新后端时，重新进入仓库根目录，拉取最新版，再复制文件并重启服务：
+
+```bash
+cd ~/simj-preview
+git pull
+
+sudo rsync -a \
+  server/simjiang-reminder/server.py \
+  server/simjiang-reminder/backup.sh \
+  server/simjiang-reminder/requirements.txt \
+  server/simjiang-reminder/simjiang-reminder.service \
+  /opt/simjiang-reminder/
+
+sudo rsync -a --delete \
+  server/simjiang-reminder/web/ \
+  /opt/simjiang-reminder/web/
+
+sudo /opt/simjiang-reminder/.venv/bin/pip install -r /opt/simjiang-reminder/requirements.txt
+sudo cp /opt/simjiang-reminder/simjiang-reminder.service /etc/systemd/system/simjiang-reminder.service
+sudo systemctl daemon-reload
+sudo systemctl restart simjiang-reminder
+curl http://127.0.0.1:8787/api/status
+```
+
+不要删除 `/opt/simjiang-reminder/data.db` 和 `/opt/simjiang-reminder/backups/`，除非你明确要清空所有云端账号和数据。
+
+## 可选：使用部署脚本
+
+部署脚本适合你完全信任当前仓库和目标 VPS 时使用。不要把 SSH 密码写进脚本或提交到 Git。
+
+先在本机或 VPS 的仓库目录安装脚本依赖：
+
+```bash
+cd server/simjiang-reminder
+npm install
+```
+
+再通过环境变量传入你自己的服务器信息：
+
+```bash
+export SIMJ_HOST="<your-server-ip-or-domain>"
+export SIMJ_USER="<your-ssh-user>"
+export SIMJ_PASS="<your-ssh-password>"
+
+node deploy.js
+```
+
+脚本只会操作 `/opt/simjiang-reminder` 和 `simjiang-reminder` 这个 systemd 服务。开源仓库中不应出现真实 IP、SSH 用户密码、token、证书私钥或数据库文件。
 
 ## 管理后台
 

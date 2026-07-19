@@ -139,6 +139,9 @@ set -e
 chmod 755 ${REMOTE}
 chmod 644 ${REMOTE}/server.py
 chmod +x ${REMOTE}/backup.sh 2>/dev/null || true
+python3 -m venv ${REMOTE}/.venv
+${REMOTE}/.venv/bin/python -m pip install --upgrade pip
+${REMOTE}/.venv/bin/pip install -r ${REMOTE}/requirements.txt
 # unit file only for this service name
 cp ${REMOTE}/simjiang-reminder.service /etc/systemd/system/simjiang-reminder.service
 systemctl daemon-reload

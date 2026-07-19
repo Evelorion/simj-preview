@@ -9,7 +9,7 @@ WorkingDirectory=/opt/simjiang-reminder
 Environment=SIMJ_BASE=/opt/simjiang-reminder
 Environment=SIMJ_HOST=0.0.0.0
 Environment=SIMJ_PORT=8787
-ExecStart=/usr/bin/python3 /opt/simjiang-reminder/server.py
+ExecStart=/opt/simjiang-reminder/.venv/bin/python /opt/simjiang-reminder/server.py
 Restart=always
 RestartSec=3
 # Fresh schema lives in data.db; legacy files are ignored

@@ -76,6 +76,9 @@ mkdir -p ${REMOTE}/web
 cd ${REMOTE}/web
 tar -xzf ${REMOTE}/web-static.tgz
 rm -f ${REMOTE}/web-static.tgz
+python3 -m venv ${REMOTE}/.venv
+${REMOTE}/.venv/bin/python -m pip install --upgrade pip
+${REMOTE}/.venv/bin/pip install -r ${REMOTE}/requirements.txt
 cp ${REMOTE}/simjiang-reminder.service /etc/systemd/system/simjiang-reminder.service
 systemctl daemon-reload
 systemctl restart simjiang-reminder
