@@ -279,7 +279,7 @@ object DataStore {
 }
 
 object NotificationHelper {
-    fun createChannel(ctx:Context){ if(Build.VERSION.SDK_INT>=26){ val nm=ctx.getSystemService(NotificationManager::class.java); nm.createNotificationChannel(NotificationChannel(CHANNEL_ID,"simJ 到期提醒",NotificationManager.IMPORTANCE_HIGH)) } }
+    fun createChannel(ctx:Context){ if(Build.VERSION.SDK_INT>=26){ val nm=ctx.getSystemService(NotificationManager::class.java); nm.createNotificationChannel(NotificationChannel(CHANNEL_ID,"DsimJ 到期提醒",NotificationManager.IMPORTANCE_HIGH)) } }
     fun notify(ctx:Context,id:Int,title:String,text:String,emailIntent:Intent?=null){
         val b=Notification.Builder(ctx,CHANNEL_ID).setSmallIcon(android.R.drawable.ic_dialog_info).setContentTitle(title).setContentText(text).setStyle(Notification.BigTextStyle().bigText(text)).setAutoCancel(true)
         if(emailIntent!=null){
@@ -311,14 +311,14 @@ object ReminderScheduler {
 class ReminderReceiver: BroadcastReceiver(){ override fun onReceive(ctx:Context,intent:Intent){
     val id=intent.getStringExtra("id"); val r=DataStore.loadRecords(ctx).firstOrNull{it.id==id}?:return
     val s=DataStore.load设置(ctx)
-    val subject="simJ 号码到期提醒：${r.operator.ifBlank{r.countryName}} ${r.countryCode} ${formatNumber(r.number)}"
+    val subject="DsimJ 号码到期提醒：${r.operator.ifBlank{r.countryName}} ${r.countryCode} ${formatNumber(r.number)}"
     val body=buildEmailBody(r,s)
     val msg="${r.flag} ${r.countryCode} ${formatNumber(r.number)} 将于 ${r.expireDate} 到期"
     if(s.notificationEnabled){
         val emailIntent=if(s.emailQuickEnabled) makeEmailIntent(s.smtpTo,subject,body) else null
         NotificationHelper.notify(ctx,r.id.hashCode(),"号码即将到期",msg,emailIntent)
     }
-    if(s.tgEnabled) sendTelegram(s.botToken,s.chatId,"⏰ Sim Jiang 到期提醒\n$msg")
+    if(s.tgEnabled) sendTelegram(s.botToken,s.chatId,"⏰ DsimJ 到期提醒\n$msg")
     if(s.smtpEnabled) sendSmtpMail(s,subject,body)
 } }
 class BootReceiver: BroadcastReceiver(){ override fun onReceive(ctx:Context,intent:Intent){ ReminderScheduler.schedule全部(ctx) } }
@@ -526,7 +526,7 @@ class MainActivity: ComponentActivity(){ private val req=registerForActivityResu
                 }
                 Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(8.dp)){
                     Button({ clipboard.setText(AnnotatedString(content)) },modifier=Modifier.weight(1f).height(46.dp),shape=RoundedCornerShape(15.dp),colors=ButtonDefaults.buttonColors(containerColor=Color.White,contentColor=Color(0xFF007AFF))){Text(L("复制"))}
-                    Button({ shareExportFile(ctx,"simJ-export-${System.currentTimeMillis()}.$ext",if(ext=="csv") "text/csv" else "application/json",content,exportFileTitle) },modifier=Modifier.weight(1f).height(46.dp),shape=RoundedCornerShape(15.dp),colors=ButtonDefaults.buttonColors(containerColor=Color(0xFF007AFF))){Text(L("导出文件"))}
+                    Button({ shareExportFile(ctx,"DsimJ-export-${System.currentTimeMillis()}.$ext",if(ext=="csv") "text/csv" else "application/json",content,exportFileTitle) },modifier=Modifier.weight(1f).height(46.dp),shape=RoundedCornerShape(15.dp),colors=ButtonDefaults.buttonColors(containerColor=Color(0xFF007AFF))){Text(L("导出文件"))}
                 }
                 TextButton(onDismiss,modifier=Modifier.align(Alignment.CenterHorizontally)){Text(L("关闭"))}
             }
@@ -571,7 +571,7 @@ fun shareExportFile(ctx:Context,fileName:String,mime:String,content:String,title
         ){
             Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(10.dp)){
                 Column(Modifier.weight(1f),verticalArrangement=Arrangement.spacedBy(0.dp)){
-                    Text(if(home) "simJ" else when(screen){"tools"->"Tools";"settings"->"Settings";"esim"->"eSIM";else->"SIM"},style=MaterialTheme.typography.titleLarge,color=content,maxLines=1,overflow=TextOverflow.Ellipsis)
+                    Text(if(home) "DsimJ" else when(screen){"tools"->"Tools";"settings"->"Settings";"esim"->"eSIM";else->"SIM"},style=MaterialTheme.typography.titleLarge,color=content,maxLines=1,overflow=TextOverflow.Ellipsis)
                     Text(when(screen){"home"->"SIM 号码库";"tools"->"常用工具";"settings"->"外观";"esim"->"eSIM 管理";else->"号码"},style=MaterialTheme.typography.labelMedium,color=content.copy(alpha=.68f),maxLines=1,overflow=TextOverflow.Ellipsis)
                 }
                 if(home){
@@ -639,7 +639,7 @@ fun shareExportFile(ctx:Context,fileName:String,mime:String,content:String,title
     ){
         Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically){
             Column(Modifier.weight(1f),verticalArrangement=Arrangement.spacedBy(1.dp)){
-                Text(if(screen=="home") "simJ" else when(screen){"tools"->L("工具");"settings"->L("设置");"esim"->"eSIM";else->L("号码")},style=MaterialTheme.typography.titleLarge,color=scheme.onSurface)
+                Text(if(screen=="home") "DsimJ" else when(screen){"tools"->L("工具");"settings"->L("设置");"esim"->"eSIM";else->L("号码")},style=MaterialTheme.typography.titleLarge,color=scheme.onSurface)
                 Text(when(screen){"home"->L("号码");"tools"->L("常用工具");"settings"->L("外观");"esim"->L("eSIM 管理");else->L("号码")},style=MaterialTheme.typography.labelMedium,color=scheme.onSurfaceVariant)
             }
             IconCircle(if(dark) "☀" else "☾",onToggleDark)
@@ -2073,7 +2073,7 @@ object OperatorLogoAssets {
                 HomeTopSortButton(sortMode,onSort)
             }
             Text(
-                "SIMJ",
+                "DsimJ",
                 style=MaterialTheme.typography.headlineSmall,
                 color=scheme.primary,
                 fontWeight=FontWeight.ExtraBold,
@@ -3809,7 +3809,7 @@ fun cloudRequest(s:App设置,path:String,method:String="POST",body:String="{}",l
             // Avoid keep-alive reuse bugs with short-lived Python HTTP/1.x responses
             c.setRequestProperty("Connection","close")
             c.setRequestProperty("Accept","application/json")
-            c.setRequestProperty("User-Agent","simJ-Android/3.0.24")
+            c.setRequestProperty("User-Agent","DsimJ-Android/3.0.24")
             if(needsAuth){
                 c.setRequestProperty("Authorization","Bearer $token")
             }
@@ -3862,7 +3862,7 @@ fun cloudRequest(s:App设置,path:String,method:String="POST",body:String="{}",l
             c.requestMethod=method.uppercase(); c.connectTimeout=15000; c.readTimeout=25000
             c.setRequestProperty("Connection","close")
             c.setRequestProperty("Accept","application/json")
-            c.setRequestProperty("User-Agent","simJ-Android/3.0.24")
+            c.setRequestProperty("User-Agent","DsimJ-Android/3.0.24")
             if(needsAuth){
                 c.setRequestProperty("Authorization","Bearer $token")
             }
@@ -4222,7 +4222,7 @@ fun restoreCloudBackupById(st:App设置, backupId:Int, onResult:(Boolean,String)
             }else{
                 Surface(shape=RoundedCornerShape(18.dp),color=MaterialTheme.colorScheme.surfaceContainerHighest,modifier=Modifier.fillMaxWidth()){
                     Column(Modifier.padding(14.dp),verticalArrangement=Arrangement.spacedBy(4.dp)){
-                        Text("已登录：${st.cloudUsername.ifBlank{"SIMJ 账户"}}",fontSize=15.sp,fontWeight=FontWeight.Bold,color=MaterialTheme.colorScheme.onSurface)
+                        Text("已登录：${st.cloudUsername.ifBlank{"DsimJ 账户"}}",fontSize=15.sp,fontWeight=FontWeight.Bold,color=MaterialTheme.colorScheme.onSurface)
                         Text(
                             if(hasLocalVaultKey)
                                 "已登录，云端号码用密码加解密。换机只要账号密码即可自动恢复。"
@@ -4558,7 +4558,7 @@ Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(8.dp)){
             Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically){
                 Box(Modifier.size(34.dp).clip(RoundedCornerShape(17.dp)).background(Color(0xFF007AFF)),contentAlignment=Alignment.Center){Text("i",color=Color.White,fontWeight=FontWeight.Bold)}
                 Spacer(Modifier.width(10.dp))
-                Text("simJ v"+currentVersion+"\n"+L("开发者")+"：伍六柒\n"+L("本地数据存储"),fontSize=13.sp,color=Color(0xFF4B5563),lineHeight=20.sp)
+                Text("DsimJ v"+currentVersion+"\n"+L("开发者")+"：爱用AI的Doro\n基于 SIMJ 项目的再次开发\n"+L("本地数据存储"),fontSize=13.sp,color=Color(0xFF4B5563),lineHeight=20.sp)
             }
             Spacer(Modifier.height(8.dp))
             var checking by remember { mutableStateOf(false) }
@@ -5189,7 +5189,7 @@ fun App设置.copy()=App设置(dark,remind天,trafficUrl,trafficKb,tgEnabled,bot
         confirm=false
         val targetKb=parseTrafficKb(amount).coerceIn(1.0,1024.0*500.0)
         result=tr(lang,"请求中…")
-        consumeTraffic(url,targetKb,lang){msg->result=msg; if(s.tgEnabled) sendTelegram(s.botToken,s.chatId,"📶 Sim Jiang ${tr(lang,"刷流量")}\n${r.countryCode} ${formatNumber(r.number)}\n$msg")}
+        consumeTraffic(url,targetKb,lang){msg->result=msg; if(s.tgEnabled) sendTelegram(s.botToken,s.chatId,"📶 DsimJ ${tr(lang,"刷流量")}\n${r.countryCode} ${formatNumber(r.number)}\n$msg")}
     })
 }
 
