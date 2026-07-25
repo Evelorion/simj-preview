@@ -7,13 +7,13 @@
 
 ## 2. 读文档
 
-- [ ] 精读 [DEVELOPMENT.md](./DEVELOPMENT.md)（架构、E2EE、API、App、Web、踩坑）
+- [ ] 精读 [DEVELOPMENT.md](./DEVELOPMENT.md)（架构、普通同步、API、App、Web、踩坑）
 
 ## 3. 安全模型（口头能复述）
 
-- [ ] **密码** = 登录 + vault 加解密
+- [ ] **密码** = 登录账号
 - [ ] **私钥** = 仅忘记密码重置（服务器只存 hash）
-- [ ] 服务器 **永不** 解密 `encryptedVault`
+- [ ] 服务器普通 payload 可读完整号码，只部署在可信 VPS
 - [ ] `coverage` = 地图/卡片元数据（登录用户可见）
 
 ## 4. 验证线上
@@ -37,7 +37,7 @@ curl -sS https://your-domain.example/api/public-settings
 
 ## 6. 禁止事项
 
-- [ ] 不用 privateKey 做 AES / 不写进 `cloudApiKey`
+- [ ] 不用 privateKey 做同步密钥 / 不写进 `cloudApiKey`
 - [ ] App 登录不强制填私钥
 - [ ] 不 `SIMJ_RESET_DB` 除非明确清库
 - [ ] 不部署到 VPS 其它目录
@@ -46,7 +46,7 @@ curl -sS https://your-domain.example/api/public-settings
 
 | 现象 | 方向 |
 |------|------|
-| 网页有统计、App 说解不开 | 密码密钥是否匹配；有本地号则再「同步到云端」 |
+| 网页有统计但看不到完整号码 | 云端可能只有 coverage；有本地号则再「同步到云端」 |
 | 注册 ProtocolException | HTTP/1.1 + Connection close；服务是否在 8787 |
 | 模拟器装不上 | `adb uninstall` + `pm trim-caches` |
 | Gradle 秒失败 `25.0.2` | 换 JDK 17 |

@@ -293,7 +293,7 @@
       currentAccountId = me.accountId || '';
       $('who').textContent = me.username || '管理员';
       $('admin-username').value = me.username || '';
-      $('role-line').textContent = `角色：${me.role} · 端到端加密后端`;
+      $('role-line').textContent = `角色：${me.role} · 普通同步后端`;
       $('stat-role').textContent = String(me.role || '').toUpperCase();
       settings = { ...settings, ...(me.serverSettings || {}) };
       security = {

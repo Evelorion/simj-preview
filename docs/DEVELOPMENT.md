@@ -1,14 +1,14 @@
 # SIMJ 全栈开发文档（接手必读）
 
 > 目标：不翻聊天记录也能改 **Android App / 3D 地球 Web / Python 云端 / 管理后台**。
-> 最后对齐：后端 `v6-e2ee-globe-admin2fa` · App `3.0.24-pre` · Web 缓存 `?v=3d7`
+> 最后对齐：后端 `v7-plain-sync` · App `3.0.24-pre` · Web 缓存 `?v=plain-sync-edit-number-20260725`
 > 仓库根目录：`simj-preview/`
 
 ---
 
 ## 0. 一句话产品
 
-**simJ**：管理实体 SIM / eSIM 号码（到期、余额、运营商等），支持 **端到端加密云同步**，浏览器 **3D 地球** 高亮有号码的国家，同账号网页可看 **号码卡片**（完整号码仅登录用户可见）。
+**simJ**：管理实体 SIM / eSIM 号码（到期、余额、运营商等），支持自建后端 **普通账号同步**，浏览器 **3D 地球** 高亮有号码的国家，同账号网页可看 **完整号码卡片**。
 
 ---
 
@@ -41,7 +41,7 @@ simj-preview/
 │   └── src/main/
 │       ├── AndroidManifest.xml       # cleartext + network_security_config
 │       ├── java/com/sansim/app/
-│       │   ├── MainActivity.kt       # 主 UI + 云同步 E2EE（大文件）
+│       │   ├── MainActivity.kt       # 主 UI + 普通云同步（大文件）
 │       │   ├── SimMapPage.kt         # App 内地图
 │       │   ├── data/model/           # App设置 / PhoneNumberRecord / Country
 │       │   ├── esim/                 # eSIM 读卡 / 扫码 / 数据库
@@ -79,15 +79,15 @@ simj-preview/
 ┌──────────────────────┐   HTTP :8787    ┌─────────────────────────────────┐
 │  Android App         │ ──────────────► │  server.py (ThreadingHTTPServer)│
 │  com.sansim.app      │  Bearer token   │  SQLite data.db                 │
-│  密码派生 AES-GCM    │  encryptedVault │  永不解密号码正文               │
-│  本地号码 DB/JSON    │  coverage       │  coverage = 地图/卡片元数据     │
+│  本地号码 DB/JSON    │  plain payload  │  按账号保存完整号码 payload     │
+│  覆盖统计 / samples  │  coverage       │  coverage = 地图/卡片元数据     │
 └──────────────────────┘                 └───────────────┬─────────────────┘
                                                          │ 同端口静态
 ┌──────────────────────┐                                 ▼
 │  浏览器              │ ◄──────── web/index.html + simj-portal.js
 │  globe.gl 地球       │            Cookie / 同 token 会话
-│  登录后拉 coverage   │            可选：WebCrypto 解 vault
-│  + 号码卡片墙        │
+│  登录后拉 payload    │            同账号可看完整号码卡片
+│  + 号码卡片墙        │            地图含中国相关区域显示修正
 └──────────────────────┘
 ```
 
@@ -95,11 +95,11 @@ simj-preview/
 
 | 层 | 存什么 | 服务器能否看明文 | 用途 |
 |----|--------|------------------|------|
-| **encryptedVault** | 完整号码 + 设置 JSON，AES-256-GCM | **否** | 换机恢复、权威备份 |
-| **coverage** | 按国家统计 + samples 卡片字段 | **能**（仅该账号登录后 API 返回） | 地球高亮、网页号码卡片 |
+| **payload_json / payload** | 完整号码 + 设置 JSON | **能** | 换机恢复、Web 完整号码卡片 |
+| **coverage** | 按国家统计 + samples 卡片字段 | **能**（仅该账号登录后 API 返回） | 地球高亮、卡片摘要、兼容回退 |
 
-> 网页地图能显示「有 3 国 / 3 张卡」**不代表** vault 已用密码解开。
-> 恢复完整记录依赖：登录密码派生密钥解密 vault（或 samples 里有完整号码时的卡片回退）。
+> 当前 v7 是普通同步模式：服务器数据库可以读取完整号码。请只部署在可信 VPS 上，公网建议 HTTPS。
+> 旧版 `encryptedVault` 仅作为兼容迁移来源；登录成功后会尽量迁移为普通 payload。
 
 ---
 
@@ -109,33 +109,32 @@ simj-preview/
 
 | 材料 | 用途 | 禁止 |
 |------|------|------|
-| **账号密码** | 登录；**派生 vault 加解密密钥**；日常恢复 | — |
-| **privateKey** | **仅**忘记密码时证明身份、重置登录密码 | **禁止**用于 vault 加解密 |
+| **账号密码** | 登录；拉取/写入当前账号普通 payload；日常恢复 | 不要当作明文配置写入仓库 |
+| **privateKey** | **仅**忘记密码时证明身份、重置登录密码 | **禁止**用于同步加密、HTTP 鉴权或日常登录 |
 | **session token** | HTTP 鉴权（`Authorization: Bearer` 或 Cookie） | 不当加密密钥 |
 
-### 4.2 密码派生 vault 密钥（App / Web 必须一致）
+### 4.2 普通同步 payload
 
-```text
-AAD        = UTF-8("simj:e2ee:v1")
-salt       = SHA-256(UTF-8("simj:e2ee:v1:" + username.trim().lowercase()))[0:16]
-secret_raw = PBKDF2-HMAC-SHA256(password, salt, iterations=310000, dkLen=32)
-secret_b64 = Base64URL(secret_raw)   # 无 padding，与 Android Base64.URL_SAFE|NO_PADDING 一致
+App 使用 `cloudPlainSyncPayload(records, settings)` 打包：
 
-AES-256-GCM:
-  key   = secret_raw（32 bytes）
-  nonce = 12 随机字节
-  AAD   = "simj:e2ee:v1"
-  输出  ciphertext + tag(16)
+```json
+{
+  "mode": "account-plain",
+  "payload": {
+    "settings": {},
+    "records": []
+  },
+  "coverage": {}
+}
 ```
 
-App 实现位置：`MainActivity.kt`
+服务端写入 `encrypted_sync.payload_json`，并继续维护 `coverage_json` 供地图和卡片摘要使用。
 
-- `deriveSimjCloudSecret(username, password)`
-- `cloudEncryptPayload` / `cloudDecryptPayload` / `analyzeCloudSyncResponse`
-- 登录成功后：`cloudApiKey = pwdSecret`（此处字段名历史遗留，**实际是密码派生密钥**，不是 privateKey）
+兼容说明：
 
-加密包 `mode` 字段：`app-e2ee-pwd`（新）。
-旧数据可能为 `app-e2ee`（若曾误用私钥当密钥，密码无法解开，需在有本地号码的设备上 **同步到云端** 用密码重写）。
+- 服务端仍能尝试读取旧 `encryptedVault`，仅用于登录后迁移旧数据。
+- 新写入必须优先使用普通 payload。
+- `cloudApiKey` 是 App 历史字段名，当前普通同步不再把它当作同步密钥。
 
 ### 4.3 注册私钥（服务器）
 
@@ -145,7 +144,7 @@ App 实现位置：`MainActivity.kt`
 
 ### 4.4 登录密码哈希（服务器）
 
-- PBKDF2-HMAC-SHA256，**210000** 次（注意：与 vault 的 310000 **不同**，不要混用）。
+- PBKDF2-HMAC-SHA256，**210000** 次，仅用于登录密码校验。
 - 字段：`password_salt` / `password_hash`（均为 urlsafe base64 无 padding）。
 
 ---
@@ -177,10 +176,10 @@ cd /opt/simjiang-reminder
 |----|------|
 | `accounts` | 用户：密码哈希、私钥哈希、role、enabled |
 | `sessions` | token、account_id、过期时间（默认 7 天） |
-| `encrypted_sync` | 每账号一份：envelope 密文 + coverage_json + records_count |
-| `sync_backups` | 每次同步前备份旧 envelope（可恢复/清理） |
+| `encrypted_sync` | 每账号一份：payload_json + coverage_json + records_count；保留 envelope 兼容旧数据 |
+| `sync_backups` | 每次同步前备份旧 payload/envelope（可恢复/清理） |
 | `server_settings` | 键值：是否开放注册、管理员 2FA、兼容旧设置项 |
-| `schema_meta` | `version` = `6-e2ee-admin2fa` |
+| `schema_meta` | `version` = `7-plain-sync` |
 
 **首个注册用户** 自动成为 `admin`（见 `register_account`）。
 
@@ -188,7 +187,7 @@ cd /opt/simjiang-reminder
 
 1. `Authorization: Bearer <token>`
 2. 或 Cookie 会话（Web 登录后 `credentials: "include"`）
-3. v6 受保护接口必须有 token；`cloudApiKey` 只是 App 历史字段名，实际保存密码派生的 vault 密钥，**不再作为 HTTP 鉴权材料**
+3. v7 受保护接口必须有 token；`cloudApiKey` 只是 App 历史字段名，**不再作为 HTTP 鉴权材料**
 
 公开路径（无需登录）：
 
@@ -216,24 +215,27 @@ cd /opt/simjiang-reminder
 
 | 方法 | 路径 | 说明 |
 |------|------|------|
-| POST | `/api/sync` | body 见下；服务器**不解密** |
-| GET | `/api/sync` 或 `/api/pull` | 返回 `encryptedVault` + `coverage` + `records` |
+| POST | `/api/sync` | body 见下；保存普通完整号码 payload |
+| GET | `/api/sync` 或 `/api/pull` | 返回 `payload` / `vaultPayload` + `coverage` + `records` |
 
 **POST /api/sync body（App 构造）**
 
 ```json
 {
-  "encryptedVault": {
-    "v": 2,
-    "mode": "app-e2ee-pwd",
-    "alg": "AES-256-GCM",
-    "kdf": "PBKDF2-HMAC-SHA256",
-    "iter": 310000,
-    "salt": "<b64u username-salt>",
-    "nonce": "<b64u 12bytes>",
-    "ciphertext": "<b64u>",
-    "tag": "<b64u 16bytes>",
-    "updatedAt": 1234567890
+  "mode": "account-plain",
+  "payload": {
+    "settings": {},
+    "records": [
+      {
+        "id": "...",
+        "countryCode": "+86",
+        "countryName": "中国",
+        "number": "完整号码",
+        "operator": "运营商",
+        "expireDate": "2026-01-01",
+        "cardType": "prepaid"
+      }
+    ]
   },
   "coverage": {
     "countries": [
@@ -274,21 +276,28 @@ cd /opt/simjiang-reminder
 
 `normalize_coverage()` 会清洗 samples（最多每国 120 条），**允许完整 number 字段**（仅账号会话可 GET，非公开接口）。
 
-**vault 明文（App 加密前）**
+**GET /api/sync 返回重点**
 
 ```json
 {
-  "settings": { /* App设置，云端密钥字段会清空后再打包 */ },
-  "records": [ /* PhoneNumberRecord 数组 */ ]
+  "ok": true,
+  "mode": "account-plain",
+  "payload": { "settings": {}, "records": [] },
+  "vaultPayload": { "settings": {}, "records": [] },
+  "coverage": {},
+  "records": 0,
+  "e2ee": false
 }
 ```
+
+旧字段名 `vaultPayload` 是为了兼容 Web/App 旧读取逻辑；当前内容就是普通 payload。
 
 #### 备份
 
 | 方法 | 路径 | 说明 |
 |------|------|------|
 | GET | `/api/backups?limit=N` | 列表 |
-| GET | `/api/backups/{id}` | 详情（仍是密文 envelope） |
+| GET | `/api/backups/{id}` | 详情（payload_json + 旧 envelope 兼容字段） |
 | POST | `/api/restore-backup` | `{backupId}` 把备份写回 encrypted_sync |
 | POST | `/api/backups/clear` | 清理旧备份 |
 
@@ -308,7 +317,7 @@ cd /opt/simjiang-reminder
 |------|------|
 | GET `/api/status` | 健康、版本 |
 | GET `/api/key-info`、`/api/meta` | 兼容旧 App 概览 |
-| GET `/api/reminder-status` | 占位（E2EE 后提醒在客户端） |
+| GET `/api/reminder-status` | 占位（当前提醒仍主要由客户端/后续服务处理） |
 | POST `/api/test-telegram` 等 | 软 stub，提示本地执行 |
 
 ### 5.5 静态路由
@@ -364,7 +373,7 @@ adb install -r app\build\outputs\apk\debug\app-debug.apk
 
 | 路径 | 职责 |
 |------|------|
-| `MainActivity.kt` | 主界面、号码列表、设置、**全部云同步/E2EE** |
+| `MainActivity.kt` | 主界面、号码列表、设置、**普通云同步** |
 | `SimMapPage.kt` | App 内轻量地球/覆盖统计 |
 | `data/model/PhoneNumberRecord.kt` | 单条号码字段 |
 | `data/model/AppSettings.kt` | 本地设置 + 云端会话字段 |
@@ -379,10 +388,10 @@ adb install -r app\build\outputs\apk\debug\app-debug.apk
 | `cloudUrl` | 服务根 URL |
 | `cloudToken` | 登录会话 token |
 | `cloudUsername` | 用户名 |
-| `cloudApiKey` | **密码派生的 vault 密钥**（历史字段名；不是 API Key，勿存 privateKey） |
+| `cloudApiKey` | 历史字段名；当前普通同步不再作为 HTTP 鉴权或 vault 密钥 |
 | `cloudDeviceId` | 设备 UUID |
 | `cloudEnabled` / `cloudAutoSync` | 开关 |
-| `cloudTelegramEnabled` / `cloudEmailEnabled` | 仅客户端配置；服务器 E2EE 下不读号码 |
+| `cloudTelegramEnabled` / `cloudEmailEnabled` | 仅客户端配置；普通同步 payload 另行保存完整号码 |
 
 ### 6.5 云同步主流程（App）
 
@@ -390,36 +399,31 @@ adb install -r app\build\outputs\apk\debug\app-debug.apk
 注册:
   POST /api/account/register
   → 保存 token
-  → cloudApiKey = deriveSimjCloudSecret(user, pass)
   → 弹窗展示 privateKey（仅备份找回密码用）
   → 若有本地号码 POST /api/sync
 
 登录:
   POST /api/account/login
-  → cloudApiKey = deriveSimjCloudSecret(user, pass)
   → GET /api/sync
-  → analyzeCloudSyncResponse(..., password=登录密码)
-  → 成功则 onCloudRestore + 可选用密码重加密再 POST /api/sync
+  → analyzeCloudSyncResponse(...)
+  → 成功则 onCloudRestore；如本地也有数据则合并后 POST /api/sync
 
 同步到云端:
   GET /api/sync 看是否已有云端数据（合并/覆盖对话框）
-  POST cloudEncryptedPayload(records, settings)
+  POST cloudPlainSyncPayload(records, settings)
 
 从云端恢复:
-  GET /api/sync → 密码密钥解密 → 写本地
+  GET /api/sync → 读取普通 payload → 写本地
 ```
 
 ### 6.6 关键 App 函数（`MainActivity.kt`）
 
 | 函数 | 作用 |
 |------|------|
-| `deriveSimjCloudSecret` | 密码 → vault 密钥 |
-| `passwordVaultSecrets` | 多种密码派生候选（兼容旧 salt） |
-| `cloudEncryptPayload` / `cloudDecryptPayload` | AES-GCM |
+| `cloudPlainSyncPayload` | records + settings + coverage 打包 POST |
 | `cloudCoverage` | 生成 coverage + samples |
-| `cloudEncryptedPayload` | vault + coverage 打包 POST |
 | `cloudRequest` / `cloudPost` / `cloudGet` | HTTP（Bearer token、Connection: close、重试 ProtocolException） |
-| `analyzeCloudSyncResponse` | 拉包诊断：有无密文 / 解密成败 / coverage 回退 |
+| `analyzeCloudSyncResponse` | 拉包诊断：普通 payload / coverage 回退 |
 | `recordsFromCoverageJson` | 从 samples 还原记录（需有完整 number） |
 | `mergeRecords` / `mergeCloudSettings` | 多端合并 |
 | `设置Page` 内云端 UI | 登录/注册/同步/恢复 |
@@ -456,12 +460,17 @@ eSIM 判定（coverage）：`cardType/note/tags` 含 esim，或 eid/smdp/activat
 - 注入右上浮动面板：登录 / 注册 / 重置密码。
 - 登录后：统计三国数字 + **「我的号码」单按钮** → 全屏卡片网格（全部 / eSIM / SIM）。
 - 数据源：
-  1. `coverage.samples`（登录会话）
-  2. 可选 WebCrypto 解密 vault（`sessionStorage` 存派生密钥）
+  1. `/api/account/me` / `/api/sync` 返回的普通 payload
+  2. `coverage.samples` 作为摘要和旧数据回退
 - `window.SIMJ_PORTAL.openGallery({iso, filter})`
 - `window.SIMJ_PORTAL.getRecordsByIso(iso)`
 
 私钥弹窗文案：**仅找回密码**，与解密无关。
+
+地图边界说明：
+
+- `web/index.html` 和 `web/app/globe-app.js` 会注入 `CN_ZANGNAN` 覆盖层，保证藏南区域在产品地图上按中国显示。
+- 地图数据仅用于业务可视化，不作为法定或测绘依据。
 
 ### 7.3 管理后台
 
@@ -493,15 +502,15 @@ systemctl restart simjiang-reminder
 ### 8.2 忘记密码
 
 1. 重置：用户名 + 私钥 + 新密码。
-2. 用**新密码**登录；vault 若仍是旧密码加密，需在有本地数据的设备同步一次用新密码重写。
+2. 用**新密码**登录；普通同步 payload 不需要重新加密。
 
-### 8.3 网页有统计、App 解不开
+### 8.3 网页有统计但看不到完整号码
 
 | 可能原因 | 处理 |
 |----------|------|
-| 密码错误 | 重新登录 |
-| 旧密文曾误用私钥加密 | 在有本地号码的设备登录后点「同步到云端」用密码重写 |
-| coverage 有、samples 无数、vault 密钥不对 | 同上 |
+| 云端只有 coverage，没有普通 payload | 在有本地完整号码的 App 上点「同步到云端」 |
+| 旧版密文迁移失败 | 用新版 App 登录并重新同步 |
+| 浏览器缓存旧 JS | Ctrl+F5，确认 `simj-portal.js` 版本已更新 |
 
 ---
 
@@ -511,9 +520,9 @@ systemctl restart simjiang-reminder
 2. 模拟器 **磁盘易满**：`adb uninstall` + `pm trim-caches`。
 3. Python HTTP 短连接：App 侧 `Connection: close` + 读流重试，防 `ProtocolException`。
 4. 改 Web **必须 bump `?v=`**。
-5. **不要**再把 privateKey 写入 `cloudApiKey` 或拿去 AES。
-6. `cleanCloudApiKey` 名字历史遗留，用于清洗 vault 密钥/privateKey 输入；HTTP 鉴权必须用 `cloudToken`。
-7. 服务器 **永不** 解密 vault；排障只看 envelope 结构与 coverage。
+5. **不要**再把 privateKey 写入 `cloudApiKey`；privateKey 只用于重置密码。
+6. `cleanCloudApiKey` 名字历史遗留；HTTP 鉴权必须用 `cloudToken`。
+7. 服务器普通 payload 可读完整号码；排障时重点看 `payload_json`、`coverage_json` 和 `/api/status.syncMode`。
 8. 部署只动 `/opt/simjiang-reminder`。
 
 ---

@@ -1,5 +1,5 @@
 [Unit]
-Description=SimJiang E2EE Cloud Reminder Service
+Description=SimJiang Plain Sync Reminder Service
 After=network-online.target
 Wants=network-online.target
 

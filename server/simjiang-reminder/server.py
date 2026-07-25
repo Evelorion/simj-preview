@@ -1,17 +1,15 @@
 #!/usr/bin/env python3
 """
-simJ Cloud — End-to-End Encrypted backend (v6)
+simJ Cloud — ordinary account-private sync backend (v7)
 
 Security model
 --------------
 * Login password: PBKDF2 hash stored server-side (login only).
-* Vault crypto (App/Web): AES-256-GCM key derived from ACCOUNT PASSWORD
-  (PBKDF2 310000, salt from username). Native App decrypts locally; Web login
-  may transiently decrypt the owner's vault from the submitted login password
-  so plain HTTP deployments can still show full numbers. Password/plaintext are
-  not stored, and admin endpoints never expose vault plaintext.
+* Sync payload: the server stores the logged-in account's full records as
+  plaintext JSON in payload_json. This intentionally cancels the previous E2EE
+  model so Web can show complete numbers after ordinary account login.
 * privateKey: random, shown ONCE at register; only SHA-256 stored.
-  Used ONLY for password-reset identity — NOT for vault encryption.
+  Used ONLY for password-reset identity.
 * coverage_json: per-account map metadata + optional number card samples
   (returned only to authenticated owner). Used by globe highlight / web cards.
 
@@ -27,6 +25,7 @@ import os
 import re
 import secrets
 import sqlite3
+import sys
 import threading
 import time
 import urllib.parse
@@ -44,8 +43,10 @@ PORT = int(os.getenv("SIMJ_PORT") or "8787")
 USERNAME_RE = re.compile(r"^[A-Za-z0-9_.@-]{3,64}$")
 PRIVATE_KEY_RE = re.compile(r"^[A-Za-z0-9_-]{24,80}$")
 SESSION_TTL = 60 * 60 * 24 * 7
-SCHEMA_VERSION = "6-e2ee-admin2fa"
-SERVICE_VERSION = "v6-e2ee-globe-admin2fa"
+SCHEMA_VERSION = "7-plain-sync"
+SERVICE_VERSION = "v7-plain-sync"
+SESSION_VAULT_CACHE: dict[str, tuple[int, dict]] = {}
+SESSION_VAULT_LOCK = threading.Lock()
 
 
 # ---------------------------------------------------------------------------
@@ -175,20 +176,267 @@ def decrypt_vault_payload(envelope: dict, username: str, password: str) -> dict 
     return None
 
 
+def vault_payload_record_count(payload) -> int:
+    if isinstance(payload, str):
+        try:
+            payload = json.loads(payload)
+        except Exception:
+            return 0
+    if isinstance(payload, list):
+        return len(payload)
+    if not isinstance(payload, dict):
+        return 0
+    records = payload.get("records")
+    if isinstance(records, str):
+        try:
+            records = json.loads(records)
+        except Exception:
+            records = None
+    if isinstance(records, list):
+        return len(records)
+    for key in ("payload", "data", "vaultPayload"):
+        nested = payload.get(key)
+        count = vault_payload_record_count(nested)
+        if count:
+            return count
+    return 0
+
+
+def json_load_maybe(value):
+    if isinstance(value, str):
+        text = value.strip()
+        if not text:
+            return None
+        try:
+            return json.loads(text)
+        except Exception:
+            return None
+    return value
+
+
+def normalized_plain_payload(value) -> dict | None:
+    value = json_load_maybe(value)
+    if isinstance(value, list):
+        return {"records": value}
+    if not isinstance(value, dict):
+        return None
+    records = json_load_maybe(value.get("records"))
+    if not isinstance(records, list):
+        return None
+    out = dict(value)
+    out["records"] = records
+    settings = json_load_maybe(out.get("settings"))
+    out["settings"] = settings if isinstance(settings, dict) else {}
+    return out
+
+
+def request_plain_payload(body: dict) -> dict | None:
+    for key in ("payload", "plainPayload", "data"):
+        found = normalized_plain_payload(body.get(key))
+        if found:
+            return found
+    if isinstance(body.get("records"), list):
+        return normalized_plain_payload({"records": body.get("records"), "settings": body.get("settings") or {}})
+    return None
+
+
+def plain_payload_from_row(row) -> dict | None:
+    if not row:
+        return None
+    try:
+        payload_json = row["payload_json"]
+    except Exception:
+        payload_json = ""
+    return normalized_plain_payload(payload_json)
+
+
+def plain_payload_json(payload: dict) -> str:
+    clean_payload = normalized_plain_payload(payload) or {"records": []}
+    return json.dumps(clean_payload, ensure_ascii=False, separators=(",", ":"))
+
+
+def account_plain_payload(conn, account_id: str) -> dict | None:
+    row = conn.execute(
+        "SELECT payload_json FROM encrypted_sync WHERE account_id=?",
+        (account_id,),
+    ).fetchone()
+    return plain_payload_from_row(row)
+
+
+def plain_payload_from_coverage_cards(coverage: dict) -> dict:
+    records: list[dict] = []
+    today = time.strftime("%Y-%m-%d")
+    for country in (coverage or {}).get("countries") or []:
+        if not isinstance(country, dict):
+            continue
+        country_name = str(country.get("name") or "")[:80]
+        for sample in (country.get("samples") or [])[:120]:
+            if not isinstance(sample, dict):
+                continue
+            is_esim = bool(sample.get("esim"))
+            records.append(
+                {
+                    "id": str(sample.get("id") or uuid.uuid4())[:64],
+                    "countryCode": str(sample.get("code") or "")[:12] or "+",
+                    "countryName": str(sample.get("name") or country_name)[:40],
+                    "flag": str(sample.get("flag") or "")[:8],
+                    "number": "",
+                    "operator": str(sample.get("op") or sample.get("operator") or "")[:40],
+                    "expireDate": str(sample.get("expire") or sample.get("expireDate") or "")[:32],
+                    "note": str(sample.get("note") or "")[:80],
+                    "balance": str(sample.get("balance") or "")[:32],
+                    "startDate": str(sample.get("startDate") or today)[:32],
+                    "createdAt": str(sample.get("createdAt") or today)[:32],
+                    "signalStatus": str(sample.get("signal") or "在线")[:24],
+                    "cardType": str(sample.get("cardType") or ("esim" if is_esim else "prepaid"))[:24],
+                }
+            )
+    return {"records": records, "settings": {}}
+
+
+def clean_phone_number(raw) -> str:
+    text = re.sub(r"[^\d+()\-\s]", "", str(raw or "").strip())[:40]
+    digits = re.sub(r"\D", "", text)
+    if len(digits) < 3:
+        return ""
+    return text
+
+
+def update_coverage_sample_number(coverage: dict, record_id: str, number: str) -> dict:
+    cov = normalize_coverage(coverage)
+    digits = re.sub(r"\D", "", number)
+    last4 = digits[-4:] if len(digits) >= 4 else digits
+    mask = ("**** " + (last4 or "????")).strip()
+    for country in cov.get("countries") or []:
+        for sample in country.get("samples") or []:
+            if str(sample.get("id") or "") == record_id:
+                sample["last4"] = last4 or "????"
+                sample["mask"] = mask
+    cov["updatedAt"] = int(time.time())
+    return cov
+
+
+def persist_plain_payload(
+    account_id: str,
+    payload: dict,
+    coverage: dict | None = None,
+    reason: str = "plain-sync",
+) -> dict | None:
+    plain = normalized_plain_payload(payload)
+    if not plain:
+        return None
+    records = vault_payload_record_count(plain)
+    now = int(time.time())
+    conn = db()
+    try:
+        existing = conn.execute(
+            """SELECT envelope, coverage_json, records_count, payload_json, sync_mode
+               FROM encrypted_sync WHERE account_id=?""",
+            (account_id,),
+        ).fetchone()
+        if existing:
+            conn.execute(
+                """INSERT INTO sync_backups(
+                       account_id, envelope, coverage_json, records_count, reason, created_at,
+                       payload_json, sync_mode
+                   ) VALUES(?,?,?,?,?,?,?,?)""",
+                (
+                    account_id,
+                    existing["envelope"],
+                    existing["coverage_json"] or "{}",
+                    int(existing["records_count"] or 0),
+                    reason,
+                    now,
+                    existing["payload_json"] or "",
+                    existing["sync_mode"] or "e2ee",
+                ),
+            )
+            purge_backups(conn, account_id)
+        cov = normalize_coverage(coverage if isinstance(coverage, dict) else {})
+        if not cov.get("records"):
+            cov["records"] = records
+        envelope = existing["envelope"] if existing else "{}"
+        conn.execute(
+            """INSERT OR REPLACE INTO encrypted_sync(
+                   account_id, envelope, coverage_json, records_count, updated_at, payload_json, sync_mode
+               ) VALUES(?,?,?,?,?,?,?)""",
+            (
+                account_id,
+                envelope or "{}",
+                json.dumps(cov, ensure_ascii=False),
+                records,
+                now,
+                plain_payload_json(plain),
+                "plain",
+            ),
+        )
+        conn.execute("UPDATE accounts SET updated_at=? WHERE id=?", (now, account_id))
+        commit(conn)
+        return {**plain, "_plainPersistedAt": now}
+    finally:
+        conn.close()
+
+
+def with_vault_source(payload: dict, source: str, backup_id: int | None = None) -> dict:
+    out = dict(payload)
+    meta = {"source": source}
+    if backup_id is not None:
+        meta["backupId"] = backup_id
+    out["_vaultSource"] = meta
+    return out
+
+
 def login_vault_payload(account_id: str, username: str, password: str) -> dict | None:
     conn = db()
     try:
         row = conn.execute(
-            "SELECT envelope FROM encrypted_sync WHERE account_id=?",
+            "SELECT envelope, coverage_json, records_count, payload_json, sync_mode FROM encrypted_sync WHERE account_id=?",
             (account_id,),
         ).fetchone()
+        plain = plain_payload_from_row(row)
+        if plain and vault_payload_record_count(plain):
+            return with_vault_source(plain, "plain")
+        fallback = None
+        wanted_count = int(row["records_count"] if row else 0)
         if not row:
-            return None
-        try:
-            envelope = json.loads(row["envelope"] or "{}")
-        except Exception:
-            return None
-        return decrypt_vault_payload(envelope, username, password)
+            fallback = None
+        else:
+            try:
+                envelope = json.loads(row["envelope"] or "{}")
+            except Exception:
+                envelope = {}
+            payload = decrypt_vault_payload(envelope, username, password)
+            if isinstance(payload, dict):
+                if vault_payload_record_count(payload):
+                    migrated = persist_plain_payload(
+                        account_id,
+                        payload,
+                        json.loads(row["coverage_json"] or "{}") if row else {},
+                        reason="auto-plain-login",
+                    )
+                    return with_vault_source(migrated or payload, "current-migrated")
+                fallback = payload
+
+        # Historical compatibility: if the latest vault was re-encrypted with
+        # a stale local key, older backups may still be readable by the account
+        # password. This only returns plaintext to the logged-in owner.
+        for backup in conn.execute(
+            """SELECT id, envelope, records_count FROM sync_backups
+               WHERE account_id=?
+               ORDER BY created_at DESC, id DESC
+               LIMIT 50""",
+            (account_id,),
+        ):
+            try:
+                envelope = json.loads(backup["envelope"] or "{}")
+            except Exception:
+                continue
+            payload = decrypt_vault_payload(envelope, username, password)
+            count = vault_payload_record_count(payload)
+            if isinstance(payload, dict) and count and (not wanted_count or count >= wanted_count):
+                migrated = persist_plain_payload(account_id, payload, reason="auto-plain-backup")
+                return with_vault_source(migrated or payload, "backup-migrated", int(backup["id"]))
+        return fallback
     finally:
         conn.close()
 
@@ -280,6 +528,12 @@ def commit(conn):
         pass
 
 
+def ensure_column(conn, table: str, column: str, ddl: str):
+    cols = {row["name"] for row in conn.execute(f"PRAGMA table_info({table})").fetchall()}
+    if column not in cols:
+        conn.execute(f"ALTER TABLE {table} ADD COLUMN {ddl}")
+
+
 def init_db():
     BASE.mkdir(parents=True, exist_ok=True)
     WEB_DIR.mkdir(parents=True, exist_ok=True)
@@ -333,6 +587,10 @@ def init_db():
         );
         """
     )
+    ensure_column(conn, "encrypted_sync", "payload_json", "payload_json TEXT NOT NULL DEFAULT ''")
+    ensure_column(conn, "encrypted_sync", "sync_mode", "sync_mode TEXT NOT NULL DEFAULT 'e2ee'")
+    ensure_column(conn, "sync_backups", "payload_json", "payload_json TEXT NOT NULL DEFAULT ''")
+    ensure_column(conn, "sync_backups", "sync_mode", "sync_mode TEXT NOT NULL DEFAULT 'e2ee'")
     now = int(time.time())
     conn.execute(
         "INSERT OR IGNORE INTO server_settings(key,value,updated_at) VALUES(?,?,?)",
@@ -422,7 +680,8 @@ def public_settings(conn=None) -> dict:
             "users": n,
             "service": "simjiang-reminder",
             "version": SERVICE_VERSION,
-            "e2ee": True,
+            "e2ee": False,
+            "syncMode": "plain",
             **admin_security_public(conn),
         }
     finally:
@@ -771,6 +1030,35 @@ def session_from_headers(headers):
         conn.close()
 
 
+def cache_session_vault(token: str, payload):
+    if not token or not isinstance(payload, dict) or not vault_payload_record_count(payload):
+        return
+    expires_at = int(time.time()) + SESSION_TTL
+    with SESSION_VAULT_LOCK:
+        SESSION_VAULT_CACHE[token] = (expires_at, payload)
+
+
+def session_vault_payload(token: str):
+    if not token:
+        return None
+    now = int(time.time())
+    with SESSION_VAULT_LOCK:
+        stale = [k for k, (exp, _) in SESSION_VAULT_CACHE.items() if exp < now]
+        for k in stale:
+            SESSION_VAULT_CACHE.pop(k, None)
+        item = SESSION_VAULT_CACHE.get(token)
+        if not item:
+            return None
+        return item[1]
+
+
+def clear_session_vault(token: str):
+    if not token:
+        return
+    with SESSION_VAULT_LOCK:
+        SESSION_VAULT_CACHE.pop(token, None)
+
+
 def is_admin(role: str) -> bool:
     return role in ("owner", "admin")
 
@@ -809,7 +1097,7 @@ def normalize_coverage(raw) -> dict:
             continue
         esims = int(item.get("esims") or 0)
         records = int(item.get("records") or 0)
-        # Account-private metadata only. Full numbers must stay inside encryptedVault.
+        # Coverage is quick metadata; full numbers live in the ordinary account payload.
         samples_out = []
         for s in (item.get("samples") or [])[:120]:
             if not isinstance(s, dict):
@@ -936,7 +1224,7 @@ def purge_backups(conn, account_id: str, keep: int = 50):
 # ---------------------------------------------------------------------------
 
 class H(BaseHTTPRequestHandler):
-    server_version = "simJ-E2EE/6"
+    server_version = "simJ-PlainSync/7"
     # HTTP/1.0 + abrupt close confuses Android HttpURLConnection
     # ("ProtocolException: unexpected end of stream" on register/login).
     protocol_version = "HTTP/1.1"
@@ -1016,9 +1304,11 @@ class H(BaseHTTPRequestHandler):
                         "records": records,
                         "schemaVersion": schema["value"] if schema else SCHEMA_VERSION,
                         "time": int(time.time()),
-                        "e2ee": True,
+                        "e2ee": False,
+                        "syncMode": "plain",
                         "features": {
-                            "account_e2ee": True,
+                            "account_e2ee": False,
+                            "plain_sync": True,
                             "private_key_once": True,
                             "password_reset_by_key": True,
                             "registration_toggle": True,
@@ -1048,13 +1338,27 @@ class H(BaseHTTPRequestHandler):
                 ).fetchone()
                 cov = load_coverage(conn, sess["account_id"])
                 sync_row = conn.execute(
-                    "SELECT updated_at, records_count FROM encrypted_sync WHERE account_id=?",
+                    """SELECT updated_at, records_count, sync_mode, payload_json, envelope
+                       FROM encrypted_sync WHERE account_id=?""",
                     (sess["account_id"],),
                 ).fetchone()
                 updated_at = int(sync_row["updated_at"] if sync_row else 0)
                 records = int(
                     (sync_row["records_count"] if sync_row else 0) or cov.get("records") or 0
                 )
+                plain_payload = account_plain_payload(conn, sess["account_id"])
+                vault_payload = plain_payload or session_vault_payload(sess["token"]) or (
+                    {"records": records_from_coverage(cov)} if records else None
+                )
+                sync_mode = sync_row["sync_mode"] if sync_row else ""
+                has_plain_payload = bool(plain_payload)
+                has_legacy_vault = False
+                if sync_row and not has_plain_payload:
+                    try:
+                        env = json.loads(sync_row["envelope"] or "{}")
+                        has_legacy_vault = bool(env.get("ciphertext") or env.get("cipherText"))
+                    except Exception:
+                        has_legacy_vault = False
                 return self._json(
                     200,
                     {
@@ -1070,6 +1374,12 @@ class H(BaseHTTPRequestHandler):
                         "records": records,
                         "updatedAt": updated_at,
                         "coverage": cov,
+                        "vaultPayload": vault_payload,
+                        "vaultRecords": vault_payload_record_count(vault_payload),
+                        "syncMode": "plain",
+                        "hasPlainPayload": has_plain_payload,
+                        "hasLegacyVault": has_legacy_vault,
+                        "needsReloginMigration": False,
                         "serverSettings": public_settings(conn),
                     },
                 )
@@ -1102,7 +1412,7 @@ class H(BaseHTTPRequestHandler):
                         "updatedAt": int(sync_row["updated_at"] if sync_row else 0),
                         "hasSettings": bool(sync_row),
                         "hasData": bool(sync_row),
-                        "mode": "account-e2ee",
+                        "mode": "account-plain",
                     },
                 )
             finally:
@@ -1112,7 +1422,6 @@ class H(BaseHTTPRequestHandler):
             sess = self._session()
             if not sess:
                 return self._json(401, {"ok": False, "message": "请先登录"})
-            # Server cannot decrypt vault — reminders run on device.
             return self._json(
                 200,
                 {
@@ -1120,8 +1429,8 @@ class H(BaseHTTPRequestHandler):
                     "lastCheckAt": 0,
                     "nextCheckAt": 0,
                     "dueNow": 0,
-                    "mode": "client-e2ee",
-                    "message": "端到端加密：到期检查由 App 本机执行",
+                    "mode": "account-plain",
+                    "message": "普通同步模式：服务器可读取当前账号的完整号码数据",
                     "lastStats": {"due": 0, "mail": 0, "tg": 0, "duplicate": 0},
                 },
             )
@@ -1192,8 +1501,8 @@ class H(BaseHTTPRequestHandler):
                             "records": int(row["records_count"] or 0),
                             "countryCount": int(cov.get("countryCount") or len(cov.get("countries") or [])),
                             "esims": int(cov.get("esims") or 0),
-                            "mode": "account-e2ee",
-                            "note": "备份仅含加密包与覆盖统计，服务器无法展示号码明文",
+                            "mode": "account-plain",
+                            "note": "普通同步模式：新备份可保存完整 payload；旧备份可能只有历史密文",
                         },
                     },
                 )
@@ -1217,7 +1526,8 @@ class H(BaseHTTPRequestHandler):
             conn = db()
             try:
                 row = conn.execute(
-                    "SELECT envelope, coverage_json, records_count, updated_at FROM encrypted_sync WHERE account_id=?",
+                    """SELECT envelope, coverage_json, records_count, updated_at, payload_json, sync_mode
+                       FROM encrypted_sync WHERE account_id=?""",
                     (sess["account_id"],),
                 ).fetchone()
                 if not row:
@@ -1231,21 +1541,23 @@ class H(BaseHTTPRequestHandler):
                 except Exception:
                     coverage = {}
                 coverage = normalize_coverage(coverage)
-                legacy_records = records_from_coverage(coverage)
+                plain_payload = plain_payload_from_row(row)
+                fallback_payload = {"records": records_from_coverage(coverage)}
+                out_payload = plain_payload or fallback_payload
+                legacy_records = out_payload.get("records") or []
                 return self._json(
                     200,
                     {
                         "ok": True,
-                        "encryptedVault": envelope,
+                        "encryptedVault": {},
                         "coverage": coverage,
-                        # Compatibility for older app builds that only understand
-                        # plaintext payload.records. This is still account-private:
-                        # /api/sync requires the logged-in user's session token.
-                        "payload": {"records": legacy_records},
+                        "payload": out_payload,
+                        "vaultPayload": out_payload,
                         "legacyRecords": len(legacy_records),
                         "records": int(row["records_count"] or 0),
                         "updatedAt": int(row["updated_at"] or 0),
-                        "mode": "account-e2ee",
+                        "mode": "account-plain",
+                        "e2ee": False,
                     },
                 )
             finally:
@@ -1379,6 +1691,7 @@ class H(BaseHTTPRequestHandler):
             if not ok:
                 return self._json(401, {"ok": False, "message": msg})
             vault_payload = login_vault_payload(data["accountId"], data["username"], login_password)
+            cache_session_vault(data["token"], vault_payload)
             return self._json(
                 200,
                 {
@@ -1386,7 +1699,7 @@ class H(BaseHTTPRequestHandler):
                     "message": msg,
                     "token": data["token"],
                     "vaultPayload": vault_payload,
-                    "vaultRecords": len(vault_payload.get("records") or []) if isinstance(vault_payload, dict) else 0,
+                    "vaultRecords": vault_payload_record_count(vault_payload),
                     "user": {
                         "username": data["username"],
                         "role": data["role"],
@@ -1395,6 +1708,34 @@ class H(BaseHTTPRequestHandler):
                     },
                 },
                 self._session_cookie(data["token"]),
+            )
+
+        if path == "/api/account/unlock-vault":
+            sess = self._session()
+            if not sess:
+                return self._json(401, {"ok": False, "message": "请先登录"})
+            password = payload.get("password") or ""
+            if not password:
+                return self._json(400, {"ok": False, "message": "请输入当前账号密码"})
+            conn = db()
+            try:
+                row = conn.execute(
+                    "SELECT password_salt, password_hash FROM accounts WHERE id=? AND enabled=1",
+                    (sess["account_id"],),
+                ).fetchone()
+                if not row or not verify_password(password, row["password_salt"], row["password_hash"]):
+                    return self._json(401, {"ok": False, "message": "密码不正确"})
+            finally:
+                conn.close()
+            vault_payload = login_vault_payload(sess["account_id"], sess["username"], password)
+            cache_session_vault(sess["token"], vault_payload)
+            return self._json(
+                200,
+                {
+                    "ok": True,
+                    "vaultPayload": vault_payload,
+                    "vaultRecords": vault_payload_record_count(vault_payload),
+                },
             )
 
         if path == "/api/account/reset-password":
@@ -1408,6 +1749,7 @@ class H(BaseHTTPRequestHandler):
         if path == "/api/account/logout":
             sess = self._session()
             if sess:
+                clear_session_vault(sess["token"])
                 conn = db()
                 try:
                     conn.execute("DELETE FROM sessions WHERE token=?", (sess["token"],))
@@ -1415,6 +1757,54 @@ class H(BaseHTTPRequestHandler):
                 finally:
                     conn.close()
             return self._json(200, {"ok": True}, self._clear_cookie())
+
+        if path == "/api/account/record-number":
+            sess = self._session()
+            if not sess:
+                return self._json(401, {"ok": False, "message": "请先登录"})
+            record_id = str(payload.get("id") or payload.get("recordId") or "").strip()[:64]
+            number = clean_phone_number(payload.get("number"))
+            if not record_id:
+                return self._json(400, {"ok": False, "message": "缺少记录 ID"})
+            if not number:
+                return self._json(400, {"ok": False, "message": "请输入完整号码"})
+            conn = db()
+            try:
+                plain = account_plain_payload(conn, sess["account_id"])
+                cov = load_coverage(conn, sess["account_id"])
+            finally:
+                conn.close()
+            if not plain:
+                plain = plain_payload_from_coverage_cards(cov)
+            records = plain.get("records") if isinstance(plain, dict) else []
+            if not isinstance(records, list):
+                records = []
+                plain = {"records": records, "settings": {}}
+            updated = False
+            for rec in records:
+                if isinstance(rec, dict) and str(rec.get("id") or "") == record_id:
+                    rec["number"] = number
+                    updated = True
+                    break
+            if not updated:
+                return self._json(404, {"ok": False, "message": "没有找到这张卡"})
+            cov = update_coverage_sample_number(cov, record_id, number)
+            saved = persist_plain_payload(sess["account_id"], plain, cov, reason="web-number-edit")
+            if not saved:
+                return self._json(500, {"ok": False, "message": "保存号码失败"})
+            return self._json(
+                200,
+                {
+                    "ok": True,
+                    "message": "号码已保存",
+                    "vaultPayload": saved,
+                    "vaultRecords": vault_payload_record_count(saved),
+                    "coverage": cov,
+                    "updatedAt": int(time.time()),
+                    "syncMode": "plain",
+                    "e2ee": False,
+                },
+            )
 
         if path == "/api/admin/settings":
             sess = self._session()
@@ -1584,25 +1974,30 @@ class H(BaseHTTPRequestHandler):
             sess = self._session()
             if not sess:
                 return self._json(401, {"ok": False, "message": "请先登录", "error": "not logged in"})
+            plain_payload = request_plain_payload(payload)
             envelope = payload.get("encryptedVault") or payload.get("envelope")
-            if not isinstance(envelope, dict):
-                return self._json(400, {"ok": False, "message": "缺少 encryptedVault（端到端加密包）"})
-            # basic envelope sanity — server never decrypts
-            if not (envelope.get("ciphertext") or envelope.get("cipherText")):
+            if not plain_payload and not isinstance(envelope, dict):
+                return self._json(400, {"ok": False, "message": "缺少 payload.records"})
+            if not plain_payload and not (envelope.get("ciphertext") or envelope.get("cipherText")):
                 return self._json(400, {"ok": False, "message": "加密包格式无效"})
             coverage = normalize_coverage(payload.get("coverage") if isinstance(payload.get("coverage"), dict) else {})
-            records = int(coverage.get("records") or payload.get("records") or 0)
+            records = vault_payload_record_count(plain_payload) if plain_payload else int(coverage.get("records") or payload.get("records") or 0)
+            if plain_payload and not coverage.get("records"):
+                coverage["records"] = records
             now = int(time.time())
             conn = db()
             try:
                 existing = conn.execute(
-                    "SELECT envelope, coverage_json, records_count FROM encrypted_sync WHERE account_id=?",
+                    """SELECT envelope, coverage_json, records_count, payload_json, sync_mode
+                       FROM encrypted_sync WHERE account_id=?""",
                     (sess["account_id"],),
                 ).fetchone()
                 if existing:
                     conn.execute(
-                        """INSERT INTO sync_backups(account_id, envelope, coverage_json, records_count, reason, created_at)
-                           VALUES(?,?,?,?,?,?)""",
+                        """INSERT INTO sync_backups(
+                               account_id, envelope, coverage_json, records_count, reason, created_at,
+                               payload_json, sync_mode
+                           ) VALUES(?,?,?,?,?,?,?,?)""",
                         (
                             sess["account_id"],
                             existing["envelope"],
@@ -1610,43 +2005,53 @@ class H(BaseHTTPRequestHandler):
                             int(existing["records_count"] or 0),
                             "pre-sync",
                             now,
+                            existing["payload_json"] or "",
+                            existing["sync_mode"] or "e2ee",
                         ),
                     )
                     purge_backups(conn, sess["account_id"])
+                if not isinstance(envelope, dict):
+                    envelope = json.loads(existing["envelope"] or "{}") if existing else {}
                 conn.execute(
-                    """INSERT OR REPLACE INTO encrypted_sync(account_id, envelope, coverage_json, records_count, updated_at)
-                       VALUES(?,?,?,?,?)""",
+                    """INSERT OR REPLACE INTO encrypted_sync(
+                           account_id, envelope, coverage_json, records_count, updated_at, payload_json, sync_mode
+                       ) VALUES(?,?,?,?,?,?,?)""",
                     (
                         sess["account_id"],
                         json.dumps(envelope, ensure_ascii=False),
                         json.dumps(coverage, ensure_ascii=False),
                         records,
                         now,
+                        plain_payload_json(plain_payload) if plain_payload else (existing["payload_json"] if existing else ""),
+                        "plain" if plain_payload else "e2ee",
                     ),
                 )
                 conn.execute("UPDATE accounts SET updated_at=? WHERE id=?", (now, sess["account_id"]))
                 commit(conn)
+                if plain_payload:
+                    cache_session_vault(sess["token"], plain_payload)
                 return self._json(
                     200,
                     {
                         "ok": True,
-                        "message": "端到端加密同步成功",
+                        "message": "普通同步成功",
                         "records": records,
                         "coverage": coverage,
                         "updatedAt": now,
-                        "mode": "account-e2ee",
+                        "mode": "account-plain" if plain_payload else "account-e2ee",
+                        "e2ee": False if plain_payload else True,
                     },
                 )
             finally:
                 conn.close()
 
-        # soft stubs for old app reminder buttons (no plaintext on server)
+        # soft stubs for old app reminder buttons; plain sync data is stored separately.
         if path in ("/api/test-telegram", "/api/test-email", "/api/check-now"):
             return self._json(
                 200,
                 {
                     "ok": True,
-                    "message": "E2EE 模式下提醒配置保存在客户端加密包中；请在 App 本地触发提醒。",
+                    "message": "当前提醒测试请在 App 本地触发；云端普通同步只保存账号 payload。",
                 },
             )
 
@@ -1660,7 +2065,7 @@ class H(BaseHTTPRequestHandler):
             conn = db()
             try:
                 row = conn.execute(
-                    """SELECT envelope, coverage_json, records_count
+                    """SELECT envelope, coverage_json, records_count, payload_json, sync_mode
                        FROM sync_backups WHERE account_id=? AND id=?""",
                     (sess["account_id"], bid),
                 ).fetchone()
@@ -1669,13 +2074,16 @@ class H(BaseHTTPRequestHandler):
                 now = int(time.time())
                 # snapshot current before restore
                 existing = conn.execute(
-                    "SELECT envelope, coverage_json, records_count FROM encrypted_sync WHERE account_id=?",
+                    """SELECT envelope, coverage_json, records_count, payload_json, sync_mode
+                       FROM encrypted_sync WHERE account_id=?""",
                     (sess["account_id"],),
                 ).fetchone()
                 if existing:
                     conn.execute(
-                        """INSERT INTO sync_backups(account_id, envelope, coverage_json, records_count, reason, created_at)
-                           VALUES(?,?,?,?,?,?)""",
+                        """INSERT INTO sync_backups(
+                               account_id, envelope, coverage_json, records_count, reason, created_at,
+                               payload_json, sync_mode
+                           ) VALUES(?,?,?,?,?,?,?,?)""",
                         (
                             sess["account_id"],
                             existing["envelope"],
@@ -1683,17 +2091,22 @@ class H(BaseHTTPRequestHandler):
                             int(existing["records_count"] or 0),
                             "pre-restore",
                             now,
+                            existing["payload_json"] or "",
+                            existing["sync_mode"] or "e2ee",
                         ),
                     )
                 conn.execute(
-                    """INSERT OR REPLACE INTO encrypted_sync(account_id, envelope, coverage_json, records_count, updated_at)
-                       VALUES(?,?,?,?,?)""",
+                    """INSERT OR REPLACE INTO encrypted_sync(
+                           account_id, envelope, coverage_json, records_count, updated_at, payload_json, sync_mode
+                       ) VALUES(?,?,?,?,?,?,?)""",
                     (
                         sess["account_id"],
                         row["envelope"],
                         row["coverage_json"] or "{}",
                         int(row["records_count"] or 0),
                         now,
+                        row["payload_json"] or "",
+                        row["sync_mode"] or "e2ee",
                     ),
                 )
                 purge_backups(conn, sess["account_id"])
@@ -1814,15 +2227,32 @@ class H(BaseHTTPRequestHandler):
         print("%s - %s" % (self.address_string(), fmt % args), flush=True)
 
 
+class QuietThreadingHTTPServer(ThreadingHTTPServer):
+    """Suppress noisy tracebacks when a client drops the connection mid-request.
+
+    Mobile/flaky clients frequently reset the socket; the stdlib server would
+    otherwise print a full traceback for every ConnectionResetError/BrokenPipe,
+    burying real errors in the journal.
+    """
+
+    daemon_threads = True
+
+    def handle_error(self, request, client_address):
+        exc = sys.exc_info()[1]
+        if isinstance(exc, (ConnectionResetError, BrokenPipeError, ConnectionAbortedError, TimeoutError)):
+            return
+        super().handle_error(request, client_address)
+
+
 def main():
     init_db()
     # fresh schema: ignore legacy tables/files — user requested clean approach
     print(
-        "simJ E2EE cloud %s listening on %s:%s  db=%s  web=%s"
+        "simJ plain sync cloud %s listening on %s:%s  db=%s  web=%s"
         % (SERVICE_VERSION, HOST, PORT, DB, WEB_DIR),
         flush=True,
     )
-    ThreadingHTTPServer((HOST, PORT), H).serve_forever()
+    QuietThreadingHTTPServer((HOST, PORT), H).serve_forever()
 
 
 if __name__ == "__main__":

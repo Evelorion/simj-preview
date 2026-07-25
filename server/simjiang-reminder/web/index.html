@@ -326,12 +326,16 @@
     function isEsim(d) {
       return esimIsoSet.has(featIso(d));
     }
+    function isSouthTibetOverlay(d) {
+      return !!(d && d.properties && d.properties.SIMJ_OVERLAY === 'CN_ZANGNAN');
+    }
 
     function refreshPolygonStyles() {
       if (!world) return;
       world
         .polygonAltitude(d => {
           if (d === selectedD) return 0.012;
+          if (isSouthTibetOverlay(d)) return isEsim(d) ? 0.009 : 0.007;
           if (isEsim(d)) return 0.008;
           if (isAppCountry(d)) return 0.006;
           const iso = featIso(d);
@@ -345,16 +349,18 @@
           if (isEsim(d)) return 'rgba(56, 189, 248, 0.58)';
           // App 有号码的国家：次亮蓝
           if (isAppCountry(d)) return 'rgba(96, 165, 250, 0.42)';
+          if (isSouthTibetOverlay(d)) return 'rgba(96, 165, 250, 0.28)';
           return 'rgba(255, 255, 255, 0.01)';
         })
         .polygonSideColor(d => {
-          if (d === selectedD || isEsim(d) || isAppCountry(d)) return 'rgba(2, 132, 199, 0.22)';
+          if (d === selectedD || isEsim(d) || isAppCountry(d) || isSouthTibetOverlay(d)) return 'rgba(2, 132, 199, 0.22)';
           return 'rgba(0, 0, 0, 0)';
         })
         .polygonStrokeColor(d => {
           if (d === selectedD) return 'rgba(186, 230, 253, 1)';
           if (isEsim(d)) return 'rgba(125, 211, 252, 1)';
           if (isAppCountry(d)) return 'rgba(147, 197, 253, 0.95)';
+          if (isSouthTibetOverlay(d)) return 'rgba(147, 197, 253, 0.95)';
           return 'rgba(255, 255, 255, 0.55)';
         });
     }
@@ -564,6 +570,31 @@
     const DATA_URL = 'https://cdn.jsdelivr.net/gh/vasturiano/globe.gl@master/example/datasets/ne_110m_admin_0_countries.geojson';
     // Prefer VPS local copy if present
     const LOCAL_DATA = '/data/countries.geojson';
+    const SOUTH_TIBET_CN_OVERLAY = {
+      type: 'Feature',
+      properties: {
+        ISO_A2: 'CN',
+        ISO_A3: 'CHN',
+        NAME: 'China',
+        ADMIN: 'China',
+        SIMJ_OVERLAY: 'CN_ZANGNAN'
+      },
+      geometry: {
+        type: 'Polygon',
+        coordinates: [[
+          [91.55, 27.95], [92.20, 28.35], [93.55, 28.48], [94.35, 29.10],
+          [95.40, 29.25], [96.35, 29.05], [97.35, 28.45], [97.25, 27.75],
+          [96.35, 27.25], [95.35, 27.02], [94.25, 26.60], [93.15, 26.15],
+          [92.25, 26.42], [91.55, 27.10], [91.55, 27.95]
+        ]]
+      }
+    };
+
+    function injectSouthTibetOverlay(features) {
+      if (features.some(f => f && f.properties && f.properties.SIMJ_OVERLAY === 'CN_ZANGNAN')) return features;
+      features.push(JSON.parse(JSON.stringify(SOUTH_TIBET_CN_OVERLAY)));
+      return features;
+    }
 
     function injectHkMo(features) {
       features.push({
@@ -594,6 +625,7 @@
       // avoid double HK/MO if local data already has them
       const hasHk = countries.features.some(f => featIso(f) === 'HK');
       if (!hasHk) injectHkMo(countries.features);
+      injectSouthTibetOverlay(countries.features);
 
       countryFeatures = enrichFeatures(countries.features);
 
@@ -733,6 +765,6 @@
   </script>
 
   <!-- App 登录 + eSIM 覆盖 + 与后台同一账号体系 -->
-  <script src="/simj-portal.js?v=login-vault-country-full"></script>
+  <script src="/simj-portal.js?v=plain-sync-edit-number-20260725"></script>
 </body>
 </html>

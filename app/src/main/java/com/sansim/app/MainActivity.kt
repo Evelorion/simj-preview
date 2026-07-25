@@ -110,18 +110,11 @@ import java.net.URL
 import java.net.URLEncoder
 import javax.net.ssl.SSLSocketFactory
 import android.util.Base64
-import java.security.MessageDigest
-import java.security.SecureRandom
 import java.time.LocalDate
 import java.time.LocalDateTime
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.util.UUID
-import javax.crypto.Cipher
-import javax.crypto.SecretKeyFactory
-import javax.crypto.spec.GCMParameterSpec
-import javax.crypto.spec.PBEKeySpec
-import javax.crypto.spec.SecretKeySpec
 import coil.compose.AsyncImage
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.graphics.asImageBitmap
@@ -229,7 +222,6 @@ private fun SimJMaterialTheme(dark: Boolean, content: @Composable () -> Unit) {
         content = content
     )
 }
-
 const val CHANNEL_ID = "san_sim_reminders"
 const val PREF = "san_sim_data"
 
@@ -375,7 +367,6 @@ fun sendSmtpMail(s:App设置,subject:String,body:String,onResult:((Boolean,Strin
         res.onSuccess{ done(true,"测试邮件已提交 SMTP") }.onFailure{ done(false,"发送失败：${it.javaClass.simpleName}: ${it.message}") }
     }
 }
-
 class MainActivity: ComponentActivity(){ private val req=registerForActivityResult(ActivityResultContracts.RequestPermission()){}; override fun onCreate(b:Bundle?){ super.onCreate(b); if(Build.VERSION.SDK_INT>=33) req.launch(Manifest.permission.POST_NOTIFICATIONS); setContent{ App(this) } } }
 
 @Composable fun App(ctx:Context){
@@ -398,14 +389,11 @@ class MainActivity: ComponentActivity(){ private val req=registerForActivityResu
             cloudGet(st,"/api/sync"){ok,msg->
                 if(ok){
                     val pull=analyzeCloudSyncResponse(msg,st)
-                    val cannotReadCloud=pull.hasEncryptedVault && pull.records.isEmpty() && (pull.decryptError!=null || pull.cloudRecordHint>0)
-                    if(!cannotReadCloud){
-                        val merged=mergeRecords(pull.records,rs)
-                        val mergedSettings=mergeCloudSettings(st,pull.settings)
-                        cloudPost(mergedSettings,"/api/sync",cloudEncryptedPayload(merged,mergedSettings)){_,_->}
-                    }
+                    val merged=mergeRecords(pull.records,rs)
+                    val mergedSettings=mergeCloudSettings(st,pull.settings)
+                    cloudPost(mergedSettings,"/api/sync",cloudPlainSyncPayload(merged,mergedSettings)){_,_->}
                 }else if(msg.contains("404") || msg.contains("暂无") || msg.contains("no cloud data",true)){
-                    cloudPost(st,"/api/sync",cloudEncryptedPayload(rs,st)){_,_->}
+                    cloudPost(st,"/api/sync",cloudPlainSyncPayload(rs,st)){_,_->}
                 }
             }
         }
@@ -3542,8 +3530,7 @@ fun recordToJson(r:PhoneNumberRecord)=JSONObject()
     .put("cardColorHex",r.cardColorHex).put("cardType",r.cardType).put("sortOrder",r.sortOrder)
 
 /**
- * Clean pasted secrets. Do NOT take a short suffix match — that corrupts full keys.
- * Vault crypto uses password-derived secrets only; private keys are only for password reset.
+ * Clean pasted reset keys. Private keys are only for password reset.
  */
 fun cleanCloudApiKey(raw:String):String {
     val t=raw.trim().replace(Regex("[\r\n\t ]+"),"")
@@ -3616,122 +3603,6 @@ fun cloudPayload(records:List<PhoneNumberRecord>,s:App设置):String{
     val arr=JSONArray(); records.forEach{arr.put(recordToJson(it))}
     return JSONObject().put("settings",settings).put("records",arr).toString()
 }
-
-private const val SIMJ_CLOUD_E2EE_ITERATIONS = 310000
-private val SIMJ_CLOUD_AAD = "simj:e2ee:v1".toByteArray(Charsets.UTF_8)
-
-fun b64u(bytes:ByteArray):String = Base64.encodeToString(bytes,Base64.URL_SAFE or Base64.NO_WRAP or Base64.NO_PADDING)
-fun b64ud(text:String):ByteArray = Base64.decode(text,Base64.URL_SAFE or Base64.NO_WRAP or Base64.NO_PADDING)
-fun simjCloudSalt(username:String):ByteArray = MessageDigest.getInstance("SHA-256").digest("simj:e2ee:v1:${username.trim().lowercase()}".toByteArray(Charsets.UTF_8)).copyOf(16)
-fun deriveSimjCloudSecret(username:String,password:String):String{
-    val spec=PBEKeySpec(password.toCharArray(),simjCloudSalt(username),SIMJ_CLOUD_E2EE_ITERATIONS,256)
-    val raw=SecretKeyFactory.getInstance("PBKDF2WithHmacSHA256").generateSecret(spec).encoded
-    return b64u(raw)
-}
-fun deriveSimjCloudSecretWithSalt(password:String,saltBytes:ByteArray,iterations:Int=SIMJ_CLOUD_E2EE_ITERATIONS):String{
-    val spec=PBEKeySpec(password.toCharArray(),saltBytes,iterations.coerceAtLeast(10000),256)
-    val raw=SecretKeyFactory.getInstance("PBKDF2WithHmacSHA256").generateSecret(spec).encoded
-    return b64u(raw)
-}
-/**
- * All password-based vault key candidates for this account.
- * Private key is NEVER used for vault crypto — only for server-side password reset.
- */
-fun passwordVaultSecrets(username:String,password:String,envelope:JSONObject?=null):List<String>{
-    if(password.isBlank()) return emptyList()
-    val user=username.trim()
-    val out=LinkedHashSet<String>()
-    // 1) current: PBKDF2(password, salt=SHA256("simj:e2ee:v1:"+user)[:16], 310000)
-    runCatching{ out.add(deriveSimjCloudSecret(user,password)) }
-    runCatching{ out.add(deriveSimjCloudSecret(user.lowercase(),password)) }
-    // 2) salt from envelope (if an older build wrote a different salt)
-    val saltB64=envelope?.optString("salt","") ?: ""
-    val iter=envelope?.optInt("iter",SIMJ_CLOUD_E2EE_ITERATIONS)?.takeIf{ it>0 } ?: SIMJ_CLOUD_E2EE_ITERATIONS
-    if(saltB64.isNotBlank()){
-        runCatching{
-            out.add(deriveSimjCloudSecretWithSalt(password,b64ud(saltB64),iter))
-        }
-    }
-    // 3) very old mistaken schemes (password hash as key material)
-    runCatching{
-        out.add(b64u(MessageDigest.getInstance("SHA-256").digest("${user.lowercase()}:$password".toByteArray(Charsets.UTF_8))))
-    }
-    runCatching{
-        out.add(b64u(MessageDigest.getInstance("SHA-256").digest(password.toByteArray(Charsets.UTF_8))))
-    }
-    return out.filter{ it.isNotBlank() }
-}
-/**
- * Data vault is encrypted ONLY with a key derived from account password.
- * Login with username+password must decrypt and auto-restore.
- * privateKey is ONLY for password-reset identity on server — never vault crypto.
- */
-fun cloudEncryptPayload(plain:String,s:App设置):JSONObject{
-    val secret=cleanCloudApiKey(s.cloudApiKey)
-    if(secret.isBlank()) throw IllegalStateException("password-derived vault key missing — login with password first")
-    val keyBytes=simjAesKeyBytes(secret)
-    val nonce=ByteArray(12).also{ SecureRandom().nextBytes(it) }
-    val cipher=Cipher.getInstance("AES/GCM/NoPadding")
-    cipher.init(Cipher.ENCRYPT_MODE,SecretKeySpec(keyBytes,"AES"),GCMParameterSpec(128,nonce))
-    cipher.updateAAD(SIMJ_CLOUD_AAD)
-    val sealed=cipher.doFinal(plain.toByteArray(Charsets.UTF_8))
-    val tagSize=16
-    val cipherText=sealed.copyOfRange(0,sealed.size-tagSize)
-    val tag=sealed.copyOfRange(sealed.size-tagSize,sealed.size)
-    return JSONObject()
-        .put("v",2)
-        .put("mode","app-e2ee-pwd") // password-derived AES key ONLY
-        .put("alg","AES-256-GCM")
-        .put("kdf","PBKDF2-HMAC-SHA256")
-        .put("iter",SIMJ_CLOUD_E2EE_ITERATIONS)
-        .put("salt",b64u(simjCloudSalt(s.cloudUsername)))
-        .put("nonce",b64u(nonce))
-        .put("ciphertext",b64u(cipherText))
-        .put("tag",b64u(tag))
-        .put("updatedAt",System.currentTimeMillis()/1000L)
-}
-/** Normalize secret into a 16/24/32-byte AES key. Prefer raw base64 decode of 32-byte material. */
-fun simjAesKeyBytes(secret:String):ByteArray{
-    val cleaned=cleanCloudApiKey(secret)
-    if(cleaned.isBlank()) throw IllegalStateException("cloud secret missing")
-    val raw=runCatching{ b64ud(cleaned) }.getOrElse{ cleaned.toByteArray(Charsets.UTF_8) }
-    return when{
-        raw.size==16 || raw.size==24 || raw.size==32 -> raw
-        raw.size>32 -> raw.copyOf(32)
-        raw.isEmpty() -> throw IllegalStateException("cloud secret empty after decode")
-        else -> MessageDigest.getInstance("SHA-256").digest(raw)
-    }
-}
-private fun cloudDecryptWithSecret(envelope:JSONObject,secret:String):String{
-    val keyBytes=simjAesKeyBytes(secret)
-    val nonce=b64ud(envelope.optString("nonce",""))
-    val cipherTextText=envelope.optString("ciphertext",envelope.optString("cipherText",""))
-    val cipherBytes=b64ud(cipherTextText)
-    val tagText=envelope.optString("tag","")
-    val sealed=if(tagText.isNotBlank()) cipherBytes + b64ud(tagText) else cipherBytes
-    // with AAD (current)
-    try{
-        val cipher=Cipher.getInstance("AES/GCM/NoPadding")
-        cipher.init(Cipher.DECRYPT_MODE,SecretKeySpec(keyBytes,"AES"),GCMParameterSpec(128,nonce))
-        cipher.updateAAD(SIMJ_CLOUD_AAD)
-        return String(cipher.doFinal(sealed),Charsets.UTF_8)
-    }catch(_:Exception){ }
-    // without AAD (legacy)
-    val c2=Cipher.getInstance("AES/GCM/NoPadding")
-    c2.init(Cipher.DECRYPT_MODE,SecretKeySpec(keyBytes,"AES"),GCMParameterSpec(128,nonce))
-    return String(c2.doFinal(sealed),Charsets.UTF_8)
-}
-fun cloudDecryptPayload(envelope:JSONObject,s:App设置,extraSecrets:List<String> = emptyList()):String{
-    val candidates=(listOf(cleanCloudApiKey(s.cloudApiKey)) + extraSecrets.map{ cleanCloudApiKey(it) })
-        .filter{ it.isNotBlank() }
-        .distinct()
-    if(candidates.isEmpty()) throw IllegalStateException("password-derived vault key missing")
-    var last:Exception?=null
-    for(secret in candidates){
-        try{ return cloudDecryptWithSecret(envelope,secret) }catch(e:Exception){ last=e }
-    }
-    throw (last ?: IllegalStateException("cloud decrypt failed"))
-}
 /** Result of pulling /api/sync — distinguishes "no data" vs "has ciphertext but wrong key". */
 data class CloudPullResult(
     val records:List<PhoneNumberRecord>,
@@ -3739,7 +3610,7 @@ data class CloudPullResult(
     val cloudRecordHint:Int,
     val hasEncryptedVault:Boolean,
     val decryptError:String?,
-    val recoveredVia:String // vault | coverage | none
+    val recoveredVia:String // plain | coverage | none
 )
 fun recordsFromLegacyPayload(obj:JSONObject):Pair<List<PhoneNumberRecord>,App设置?>{
     return runCatching{
@@ -3787,8 +3658,7 @@ fun recordsFromCoverageJson(coverage:JSONObject?):List<PhoneNumberRecord>{
     return out
 }
 /**
- * Pull + decrypt vault. [password] if provided is used to derive vault keys (preferred).
- * Private key is never used here.
+ * Pull ordinary account sync. End-to-end data vaults are ignored in plain mode.
  */
 fun analyzeCloudSyncResponse(
     text:String,
@@ -3798,7 +3668,6 @@ fun analyzeCloudSyncResponse(
 ):CloudPullResult{
     return try{
         val obj=JSONObject(text)
-        val encrypted=obj.optJSONObject("encryptedVault") ?: obj.optJSONObject("envelope")
         val coverage=obj.optJSONObject("coverage")
         val hintFromRoot=obj.optInt("records",0)
         val hintFromCov=coverage?.optInt("records",0) ?: 0
@@ -3807,44 +3676,20 @@ fun analyzeCloudSyncResponse(
             hintFromCov>0 -> hintFromCov
             else -> 0
         }
-        val hasVault=encrypted!=null && (
-            encrypted.optString("mode").startsWith("app-e2ee") ||
-            encrypted.has("tag") || encrypted.has("ciphertext") || encrypted.has("cipherText")
-        )
-        if(hasVault){
-            val vault=encrypted ?: JSONObject()
-            val allPwd=if(password.isNotBlank()) passwordVaultSecrets(s.cloudUsername,password,vault) else emptyList()
-            val candidates=(allPwd + extraSecrets + listOf(s.cloudApiKey)).map{ cleanCloudApiKey(it) }.filter{ it.isNotBlank() }.distinct()
-            try{
-                val plain=cloudDecryptPayload(vault,s,candidates)
-                val parsed=parseRecordsJson(plain)
-                if(parsed.first.isNotEmpty()){
-                    return CloudPullResult(parsed.first,parsed.second,hint.coerceAtLeast(parsed.first.size),true,null,"vault")
-                }
-                val fromCov=recordsFromCoverageJson(coverage)
-                if(fromCov.isNotEmpty()){
-                    return CloudPullResult(fromCov,parsed.second,hint.coerceAtLeast(fromCov.size),true,null,"coverage")
-                }
-                return CloudPullResult(emptyList(),parsed.second,hint,true,null,"none")
-            }catch(e:Exception){
-                val fromCov=recordsFromCoverageJson(coverage)
-                if(fromCov.isNotEmpty()){
-                    return CloudPullResult(fromCov,null,hint.coerceAtLeast(fromCov.size),true,e.message,"coverage")
-                }
-                val legacy=recordsFromLegacyPayload(obj)
-                if(legacy.first.isNotEmpty()){
-                    return CloudPullResult(legacy.first,legacy.second,hint.coerceAtLeast(legacy.first.size),true,e.message,"legacy")
-                }
-                return CloudPullResult(emptyList(),null,hint,true,e.message ?: e.javaClass.simpleName,"none")
-            }
+        val payload=when{
+            obj.optJSONObject("payload")!=null -> obj.getJSONObject("payload")
+            obj.optJSONObject("vaultPayload")!=null -> obj.getJSONObject("vaultPayload")
+            obj.opt("records") is JSONArray -> obj
+            else -> null
         }
-        val payload=if(obj.has("payload")) obj.getJSONObject("payload") else obj
-        val parsed=parseRecordsJson(payload.toString())
-        if(parsed.first.isNotEmpty()){
-            CloudPullResult(parsed.first,parsed.second,hint.coerceAtLeast(parsed.first.size),false,null,"vault")
+        val parsed=payload?.let{ parseRecordsJson(it.toString()) } ?: Pair(emptyList(),null)
+        val usable=cloudUsableRecords(parsed.first)
+        if(usable.isNotEmpty()){
+            CloudPullResult(usable,parsed.second,hint.coerceAtLeast(usable.size),false,null,"plain")
         }else{
             val fromCov=recordsFromCoverageJson(coverage)
-            CloudPullResult(fromCov,null,hint.coerceAtLeast(fromCov.size),false,null,if(fromCov.isNotEmpty()) "coverage" else "none")
+            val usableCov=cloudUsableRecords(fromCov)
+            CloudPullResult(usableCov,parsed.second,hint.coerceAtLeast(usableCov.size),false,null,if(usableCov.isNotEmpty()) "coverage" else "none")
         }
     }catch(e:Exception){
         CloudPullResult(emptyList(),null,0,false,e.message,"none")
@@ -3884,7 +3729,7 @@ fun cloudCoverage(records:List<PhoneNumberRecord>):JSONObject{
         item.put("records",item.optInt("records",0)+1)
         val isEsim=isCloudEsimRecord(r)
         if(isEsim) item.put("esims",item.optInt("esims",0)+1)
-        // Coverage is server-readable metadata only; full numbers stay inside encryptedVault.
+        // Ordinary sync stores full records in the account-private server payload.
         val samples=item.optJSONArray("samples") ?: JSONArray().also{ item.put("samples",it) }
         if(samples.length()<120){
             val digits=r.number.filter{ it.isDigit() }
@@ -3918,12 +3763,14 @@ fun cloudCoverage(records:List<PhoneNumberRecord>):JSONObject{
         .put("esims",items.sumOf{it.optInt("esims",0)})
         .put("updatedAt",System.currentTimeMillis()/1000L)
 }
-fun cloudEncryptedPayload(records:List<PhoneNumberRecord>,s:App设置):String{
+fun cloudPlainSyncPayload(records:List<PhoneNumberRecord>,s:App设置):String{
     val coverage=cloudCoverage(records)
+    val payload=JSONObject(cloudPayload(records,s))
     return JSONObject()
-        .put("encryptedVault",cloudEncryptPayload(cloudPayload(records,s),s))
+        .put("payload",payload)
         .put("coverage",coverage)
         .put("records",records.size)
+        .put("mode","account-plain")
         .put("deviceId",s.cloudDeviceId.ifBlank{"android"})
         .toString()
 }
@@ -4079,7 +3926,14 @@ fun recordAltNumberKey(r:PhoneNumberRecord):String{
     return if(n.isNotBlank()) "num:$cc:$n" else ""
 }
 fun recordFreshScore(r:PhoneNumberRecord):String = listOf(r.activatedAt,r.createdAt,r.expireDate).filter{it.isNotBlank()}.maxOrNull() ?: ""
-fun chooseFreshRecord(a:PhoneNumberRecord,b:PhoneNumberRecord):PhoneNumberRecord = if(recordFreshScore(b)>=recordFreshScore(a)) b else a
+fun hasUsablePhoneNumber(r:PhoneNumberRecord):Boolean = r.number.any{ it.isDigit() }
+fun cloudUsableRecords(records:List<PhoneNumberRecord>):List<PhoneNumberRecord> = records.filter{ hasUsablePhoneNumber(it) }
+fun chooseFreshRecord(a:PhoneNumberRecord,b:PhoneNumberRecord):PhoneNumberRecord = when {
+    hasUsablePhoneNumber(a) && !hasUsablePhoneNumber(b) -> a
+    hasUsablePhoneNumber(b) && !hasUsablePhoneNumber(a) -> b
+    recordFreshScore(b)>=recordFreshScore(a) -> b
+    else -> a
+}
 fun mergeRecords(cloud:List<PhoneNumberRecord>,local:List<PhoneNumberRecord>):List<PhoneNumberRecord>{
     val out=linkedMapOf<String,PhoneNumberRecord>()
     val numberIndex=mutableMapOf<String,String>()
@@ -4188,7 +4042,7 @@ fun restoreCloudBackupById(st:App设置, backupId:Int, onResult:(Boolean,String)
             showCloudMsg("已从云端恢复：${pull.records.size} 个号码" + if(pull.recoveredVia=="coverage") "（来自同步卡片）" else "")
             if(autoMigrate){
                 runCatching{
-                    cloudPost(mergedSettings,"/api/sync",cloudEncryptedPayload(pull.records,mergedSettings)){ok,_->
+                    cloudPost(mergedSettings,"/api/sync",cloudPlainSyncPayload(pull.records,mergedSettings)){ok,_->
                         if(ok) loadCloudOverview()
                     }
                 }
@@ -4265,8 +4119,8 @@ fun restoreCloudBackupById(st:App设置, backupId:Int, onResult:(Boolean,String)
                                 st=ns
                                 onCloudRestore(pull.records,ns)
                                 showCloudMsg("已恢复指定备份：${pull.records.size} 个号码，配置已同步")
-                            }else if(pull.hasEncryptedVault || pull.cloudRecordHint>0){
-                                showCloudMsg("已恢复指定备份，但当前密码密钥解不开密文；请退出后用正确密码重新登录")
+                            }else if(pull.cloudRecordHint>0){
+                                showCloudMsg("已恢复指定备份，但该备份没有普通完整号码；请在有本地号码的设备重新同步")
                             }else showCloudMsg("已恢复指定备份")
                         }else showCloudMsg("已恢复指定备份")
                         loadCloudOverview()
@@ -4311,15 +4165,14 @@ fun restoreCloudBackupById(st:App设置, backupId:Int, onResult:(Boolean,String)
         }
         TrafficInterfaceSettings(st,{ ns-> st=ns; on(st) })
 
-        // 登录态：只要有 token 即可；vault 密钥由账号密码派生，私钥仅用于重置密码。
+        // 登录态：只要有 token 即可；号码数据使用普通账号同步。
         val cloudSignedIn=st.cloudToken.isNotBlank()
-        val hasLocalVaultKey=cleanCloudApiKey(st.cloudApiKey).isNotBlank()
         SettingsSection(S("云端提醒")){
             IOSSwitchRow(S("启用云端提醒"),st.cloudEnabled){ st=st.copyMut{cloudEnabled=it}; on(st) }
             PlainInput(S("服务地址"),st.cloudUrl){ st=st.copyMut{cloudUrl=it}; on(st) }
             Text(S("服务地址说明"),fontSize=11.sp,color=Color(0xFF8A94A6),lineHeight=16.sp)
             IOSSwitchRow(S("自动同步"),st.cloudAutoSync){ st=st.copyMut{cloudAutoSync=it}; on(st) }
-            Text("号码加解密只使用账号密码。登录成功即自动恢复云端数据。私钥只用于忘记密码时重置，与解密无关。",fontSize=11.sp,color=Color(0xFF8A94A6),lineHeight=16.sp)
+            Text("普通同步模式：登录账号后，服务器保存当前账号的完整号码和配置；私钥只用于忘记密码时重置。",fontSize=11.sp,color=Color(0xFF8A94A6),lineHeight=16.sp)
             if(!cloudSignedIn){
                 PlainInput("云同步账号",registerUsername.ifBlank{st.cloudUsername}){ registerUsername=it.trim().take(64) }
                 OutlinedTextField(
@@ -4359,10 +4212,7 @@ fun restoreCloudBackupById(st:App设置, backupId:Int, onResult:(Boolean,String)
                     Column(Modifier.padding(14.dp),verticalArrangement=Arrangement.spacedBy(4.dp)){
                         Text("已登录：${st.cloudUsername.ifBlank{"DsimJ 账户"}}",fontSize=15.sp,fontWeight=FontWeight.Bold,color=MaterialTheme.colorScheme.onSurface)
                         Text(
-                            if(hasLocalVaultKey)
-                                "已登录，云端号码用密码加解密。换机只要账号密码即可自动恢复。"
-                            else
-                                "请退出后用账号密码重新登录，登录后会自动用密码解密并恢复。",
+                            "已启用普通同步。换设备登录同一账号后会直接读取云端完整号码。",
                             fontSize=12.sp,
                             color=MaterialTheme.colorScheme.onSurfaceVariant,
                             lineHeight=17.sp
@@ -4390,16 +4240,14 @@ fun restoreCloudBackupById(st:App设置, backupId:Int, onResult:(Boolean,String)
                                         registerBusy=false
                                         if(ok){
                                             resetPasswordMode=false
-                                            // 重置后数据密钥改由新密码派生；私钥只用于身份校验
-                                            val newSecret=runCatching{ deriveSimjCloudSecret(username,password) }.getOrDefault("")
                                             val ns=st.copyMut{
                                                 cloudUsername=username
-                                                if(newSecret.isNotBlank()) cloudApiKey=newSecret
+                                                cloudApiKey=""
                                             }
                                             st=ns; on(ns)
                                             privateKeyInput=""
                                             registerPassword=""; registerPasswordAgain=""
-                                            showCloudMsg("密码已重置。请用新密码登录；若云端是旧密码加密的数据，请在原设备重新「同步到云端」一次。")
+                                            showCloudMsg("密码已重置。请用新密码登录；普通同步无需额外操作。")
                                         }else showCloudMsg(msg)
                                     }
                                 }
@@ -4408,8 +4256,7 @@ fun restoreCloudBackupById(st:App设置, backupId:Int, onResult:(Boolean,String)
                         username.length<3 -> showCloudMsg("账号至少 3 位")
                         password.length<8 -> showCloudMsg("密码至少 8 位")
                         else -> {
-                            // 登录：账号+密码。vault 只按密码解密，私钥不参与。
-                            val pwdSecret=runCatching{ deriveSimjCloudSecret(username,password) }.getOrDefault("")
+                            // 登录：账号+密码；号码数据走普通账号同步。
                             registerBusy=true
                             val body=JSONObject().put("username",username).put("password",password).toString()
                             cloudPost(st,"/api/account/login",body){ok,msg->
@@ -4417,21 +4264,19 @@ fun restoreCloudBackupById(st:App设置, backupId:Int, onResult:(Boolean,String)
                                 if(ok){
                                     val token=cloudAuthTokenFrom(msg)
                                     if(token.isBlank()) showCloudMsg(cloudAuthTokenMissingMessage(msg,"登录"))
-                                    else if(pwdSecret.isBlank()) showCloudMsg("登录成功但无法从密码派生数据密钥")
                                     else {
                                         val ns=st.copyMut{
                                             cloudUrl=cleanBundledCloudUrl(st.cloudUrl)
                                             cloudUsername=username
                                             cloudToken=token
-                                            cloudApiKey=pwdSecret // ONLY password-derived vault key
+                                            cloudApiKey=""
                                             cloudDeviceId=cloudDeviceId.ifBlank{UUID.randomUUID().toString()}
                                             cloudEnabled=true
                                             cloudAutoSync=true
                                         }
                                         st=ns; on(ns)
-                                        val loginPassword=password
                                         registerPassword=""; registerPasswordAgain=""; privateKeyInput=""
-                                        showCloudMsg("登录成功，正在用密码解密云端…")
+                                        showCloudMsg("登录成功，正在读取普通同步数据…")
                                         loadCloudOverview()
                                         cloudGet(ns,"/api/sync"){ok2,msg2->
                                             if(!ok2){
@@ -4440,19 +4285,18 @@ fun restoreCloudBackupById(st:App设置, backupId:Int, onResult:(Boolean,String)
                                                 else showCloudMsg("登录成功，但拉取云端失败：$msg2")
                                                 return@cloudGet
                                             }
-                                            val pull=analyzeCloudSyncResponse(msg2,ns,emptyList(),password=loginPassword)
+                                            val pull=analyzeCloudSyncResponse(msg2,ns)
                                             if(pull.records.isNotEmpty()){
                                                 applyPulledCloud(pull,ns,autoMigrate=true)
-                                            }else if(pull.hasEncryptedVault || pull.cloudRecordHint>0){
+                                            }else if(pull.cloudRecordHint>0){
                                                 if(records.isNotEmpty()){
-                                                    // 本机有号：用密码重新加密上传覆盖旧密文
-                                                    showCloudMsg("密码无法匹配旧密文。本机有 ${records.size} 个号码，正在用密码重新同步到云端…")
-                                                    cloudPost(ns,"/api/sync",cloudEncryptedPayload(records,ns)){ok3,msg3->
-                                                        showCloudMsg(if(ok3) "已用密码重写云端：${records.size} 个号码，之后换机可直接恢复" else msg3)
+                                                    showCloudMsg("云端还没有完整号码。本机有 ${records.size} 个号码，正在写入普通同步…")
+                                                    cloudPost(ns,"/api/sync",cloudPlainSyncPayload(records,ns)){ok3,msg3->
+                                                        showCloudMsg(if(ok3) "已写入普通同步：${records.size} 个号码" else msg3)
                                                         if(ok3) loadCloudOverview()
                                                     }
                                                 }else{
-                                                    showCloudMsg("登录成功。云端有统计但密码解不开密文：请确认密码正确；或在有本地号码的设备登录后点「同步到云端」。")
+                                                    showCloudMsg("登录成功。云端有统计但没有完整号码，请在有本地完整号码的设备登录后点「同步到云端」。")
                                                 }
                                             }else{
                                                 showCloudMsg("登录成功 · 云端暂无号码")
@@ -4487,16 +4331,13 @@ fun restoreCloudBackupById(st:App设置, backupId:Int, onResult:(Boolean,String)
                                         val obj=runCatching{ JSONObject(msg) }.getOrNull()
                                         val token=cloudAuthTokenFrom(msg)
                                         val privateKey=cleanCloudApiKey(obj?.optString("privateKey","") ?: "")
-                                        val pwdSecret=runCatching{ deriveSimjCloudSecret(username,password) }.getOrDefault("")
                                         if(token.isBlank()) showCloudMsg(cloudAuthTokenMissingMessage(msg,"注册"))
-                                        else if(pwdSecret.isBlank()) showCloudMsg("注册成功但无法派生数据密钥")
                                         else {
-                                            // 数据密钥=密码派生；私钥仅展示一次，用于忘记密码
-                                            val ns=st.copyMut{ cloudUrl=cleanBundledCloudUrl(st.cloudUrl); cloudUsername=username; cloudToken=token; cloudApiKey=pwdSecret; cloudDeviceId=cloudDeviceId.ifBlank{UUID.randomUUID().toString()}; cloudEnabled=true; cloudAutoSync=true }
+                                            val ns=st.copyMut{ cloudUrl=cleanBundledCloudUrl(st.cloudUrl); cloudUsername=username; cloudToken=token; cloudApiKey=""; cloudDeviceId=cloudDeviceId.ifBlank{UUID.randomUUID().toString()}; cloudEnabled=true; cloudAutoSync=true }
                                             st=ns; on(ns); registerPassword=""; registerPasswordAgain=""; privateKeyInput=""
                                             if(isValidCloudApiKey(privateKey)) showPrivateKeyOnce=privateKey
-                                            showCloudMsg("注册成功。日常登录只需账号密码即可自动恢复；私钥仅用于找回密码，请另存。")
-                                            if(records.isNotEmpty()) cloudPost(ns,"/api/sync",cloudEncryptedPayload(records,ns)){ok2,msg2-> showCloudMsg(if(ok2) "已同步到云端：${records.size} 个号码" else msg2); if(ok2) loadCloudOverview() } else loadCloudOverview()
+                                            showCloudMsg("注册成功。普通同步已启用；私钥仅用于找回密码，请另存。")
+                                            if(records.isNotEmpty()) cloudPost(ns,"/api/sync",cloudPlainSyncPayload(records,ns)){ok2,msg2-> showCloudMsg(if(ok2) "已同步到云端：${records.size} 个号码" else msg2); if(ok2) loadCloudOverview() } else loadCloudOverview()
                                         }
                                     }else showCloudMsg(msg)
                                 }
@@ -4508,44 +4349,30 @@ fun restoreCloudBackupById(st:App设置, backupId:Int, onResult:(Boolean,String)
             Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(8.dp)){
                 Button({
                     if(!cloudSignedIn){ showCloudMsg("请先登录云同步账户"); return@Button }
+                    if(records.isEmpty()){ showCloudMsg("本地暂无号码"); return@Button }
                     cloudGet(st,"/api/sync"){ok,msg->
-                        if(ok){
-                            val pull=analyzeCloudSyncResponse(msg,st)
-                            if(pull.records.isNotEmpty()){
-                                if(records.isEmpty()) showCloudMsg("云端已有 ${pull.records.size} 个号码，请先从云端恢复") else cloudSyncChoice=Pair(pull.records,pull.settings)
-                            }else if(pull.hasEncryptedVault || pull.cloudRecordHint>0){
-                                val countText=if(pull.cloudRecordHint>0) "${pull.cloudRecordHint} 个号码" else "加密数据"
-                                if(records.isEmpty()){
-                                    showCloudMsg("云端有$countText，但当前密码密钥解不开。请退出后用正确密码登录，或在有本地号码的设备重新同步。")
-                                }else{
-                                    showCloudMsg("云端有$countText，但当前密码密钥解不开。如确认本机数据最新，可选择覆盖云端。")
-                                    cloudOverwriteConfirm=true
-                                }
-                            }else{
-                                if(records.isEmpty()) showCloudMsg("本地暂无号码") else cloudPost(st,"/api/sync",cloudEncryptedPayload(records,st)){ok2,msg2-> showCloudMsg(if(ok2) S("同步成功") else msg2); if(ok2){ loadCloudOverview() } }
-                            }
-                        }else if(msg.contains("404") || msg.contains("暂无") || msg.contains("no cloud data",true)){
-                            if(records.isEmpty()) showCloudMsg("本地暂无号码") else cloudPost(st,"/api/sync",cloudEncryptedPayload(records,st)){ok2,msg2-> showCloudMsg(if(ok2) S("同步成功") else msg2); if(ok2){ loadCloudOverview() } }
-                        }else showCloudMsg(msg)
+                        val pull=if(ok) analyzeCloudSyncResponse(msg,st) else CloudPullResult(emptyList(),null,0,false,null,"none")
+                        val merged=mergeRecords(pull.records,records)
+                        val ns=mergeCloudSettings(st,pull.settings)
+                        cloudPost(ns,"/api/sync",cloudPlainSyncPayload(merged,ns)){ok2,msg2->
+                            showCloudMsg(if(ok2) "普通同步成功：${merged.size} 个号码" else msg2)
+                            if(ok2){ loadCloudOverview() }
+                        }
                     }
                 },shape=RoundedCornerShape(14.dp),modifier=Modifier.weight(1f)){Text(S("同步到云端"))}
                 Button({
                     if(!cloudSignedIn){ showCloudMsg("请先登录云同步账户"); return@Button }
-                    if(cleanCloudApiKey(st.cloudApiKey).isBlank()){
-                        showCloudMsg("缺少数据密钥，请退出后用账号密码重新登录（将自动恢复）")
-                        return@Button
-                    }
-                    showCloudMsg("正在用密码解密并恢复…")
+                    showCloudMsg("正在从普通云端数据恢复…")
                     cloudGet(st,"/api/sync"){ok,msg->
                         if(ok){
                             val pull=analyzeCloudSyncResponse(msg,st)
                             if(pull.records.isNotEmpty()){
                                 applyPulledCloud(pull,st,autoMigrate=true)
-                            }else if(pull.hasEncryptedVault || pull.cloudRecordHint>0){
+                            }else if(pull.cloudRecordHint>0){
                                 if(records.isNotEmpty()){
-                                    showCloudMsg("密文与当前密码不匹配。本机有号码，点「同步到云端」用密码重写即可")
+                                    showCloudMsg("云端没有普通完整数据。本机有号码，点「同步到云端」写入普通同步即可")
                                 }else{
-                                    showCloudMsg("当前密码解不开云端密文。请退出后用正确密码重新登录；或在有本地号码的设备上同步一次。")
+                                    showCloudMsg("云端没有普通完整数据。请在有本地号码的设备上同步一次。")
                                 }
                             }else showCloudMsg("云端没有可恢复的号码数据")
                         }else showCloudMsg(msg)
@@ -4582,13 +4409,13 @@ fun restoreCloudBackupById(st:App设置, backupId:Int, onResult:(Boolean,String)
             IOSSwitchRow(S("通知一键发邮件"),st.emailQuickEnabled){ st=st.copyMut{emailQuickEnabled=it}; on(st) }
             Text(S("本地通知说明"),fontSize=11.sp,color=Color(0xFF8A94A6),lineHeight=16.sp)
             Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(8.dp)){
-                Button({ showCloudMsg("端到端加密后，服务器不再读取号码或提醒配置；这些测试保留在本机执行。") },shape=RoundedCornerShape(14.dp),modifier=Modifier.weight(1f)){Text(S("测试TG"))}
-                Button({ showCloudMsg("端到端加密后，服务器不再读取号码或提醒配置；这些测试保留在本机执行。") },shape=RoundedCornerShape(14.dp),modifier=Modifier.weight(1f)){Text(S("测试邮件"))}
+                Button({ showCloudMsg("普通同步模式下，服务器会保存当前账号的完整号码和配置。") },shape=RoundedCornerShape(14.dp),modifier=Modifier.weight(1f)){Text(S("测试TG"))}
+                Button({ showCloudMsg("普通同步模式下，服务器会保存当前账号的完整号码和配置。") },shape=RoundedCornerShape(14.dp),modifier=Modifier.weight(1f)){Text(S("测试邮件"))}
             }
-            Button({ showCloudMsg("号码已端到端加密，云端不会解密检查；到期提醒由本机通知继续负责。") },shape=RoundedCornerShape(14.dp),modifier=Modifier.fillMaxWidth()){Text(S("立即检查到期"))}
+            Button({ showCloudMsg("普通同步已启用；到期提醒仍由本机通知继续负责。") },shape=RoundedCornerShape(14.dp),modifier=Modifier.fillMaxWidth()){Text(S("立即检查到期"))}
             Text(S("云端服务说明"),fontSize=12.sp,color=Color(0xFF8A94A6),lineHeight=17.sp)
             if(cloudSignedIn){
-                Text("云端同步：仅保存密文包和地图覆盖统计",fontSize=12.sp,color=Color(0xFF374151),lineHeight=17.sp)
+                Text("云端同步：普通模式，服务器保存完整号码 payload",fontSize=12.sp,color=Color(0xFF374151),lineHeight=17.sp)
                 Text("网页地图会显示 ${cloudCoverage(records).optInt("countryCount",0)} 个国家/地区覆盖",fontSize=12.sp,color=Color(0xFF374151),lineHeight=17.sp)
             }
             if(cloudMsg.isNotBlank()) Text(cloudMsg,fontSize=12.sp,color=Color(0xFF007AFF),lineHeight=17.sp)
@@ -4597,11 +4424,11 @@ fun restoreCloudBackupById(st:App设置, backupId:Int, onResult:(Boolean,String)
 
         SettingsSection("云端数据与备份"){
             if(!cloudSignedIn){
-                Text("未登录云同步账户，登录后会显示加密包状态和 Web 地图覆盖。",fontSize=12.sp,color=Color(0xFF8A94A6),lineHeight=17.sp)
+                Text("未登录云同步账户，登录后会显示普通同步状态和 Web 地图覆盖。",fontSize=12.sp,color=Color(0xFF8A94A6),lineHeight=17.sp)
             }else{
                 Text("当前账户：${st.cloudUsername.ifBlank { "..." }}",fontSize=12.sp,color=Color(0xFF374151))
                 Text("云端号码：${if(cloudOverviewKeyRecords>=0) cloudOverviewKeyRecords.toString() else "-"}",fontSize=13.sp,color=Color(0xFF374151))
-                Text("云端加密包：${if(cloudOverviewHasSettings) "已同步" else "未同步"}",fontSize=13.sp,color=Color(0xFF374151))
+                Text("云端普通数据：${if(cloudOverviewHasSettings) "已同步" else "未同步"}",fontSize=13.sp,color=Color(0xFF374151))
                 Text("上次同步：${if(cloudOverviewUpdatedAt>0) java.text.SimpleDateFormat("yyyy-MM-dd HH:mm", java.util.Locale.getDefault()).format(java.util.Date(cloudOverviewUpdatedAt)) else "-"}",fontSize=13.sp,color=Color(0xFF374151))
                 if(cloudMsg.isNotBlank()) Text(cloudMsg,fontSize=12.sp,color=Color(0xFF007AFF),lineHeight=17.sp)
                 Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(8.dp)){
@@ -4634,10 +4461,10 @@ fun restoreCloudBackupById(st:App设置, backupId:Int, onResult:(Boolean,String)
                         }
                     }
                 }else if(cloudBackupLoading.not()){
-                    Text("端到端加密模式下，服务器只保存当前密文包；具体号码不会在后台备份明细中展开。",fontSize=12.sp,color=Color(0xFF8A94A6),lineHeight=17.sp)
+                    Text("普通同步模式下，新备份会保存完整号码 payload。",fontSize=12.sp,color=Color(0xFF8A94A6),lineHeight=17.sp)
                 }
 Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(8.dp)){
-                    Button({ showCloudMsg("端到端同步不展示服务器端号码备份明细。") },shape=RoundedCornerShape(14.dp),modifier=Modifier.weight(1f)){ Text("备份策略") }
+                    Button({ showCloudMsg("普通同步备份会随当前账号数据一起保存。") },shape=RoundedCornerShape(14.dp),modifier=Modifier.weight(1f)){ Text("备份策略") }
                 }
             }
         }
@@ -4719,7 +4546,7 @@ Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(8.dp)){
     if(keyGenerateConfirm){
         AlertDialog(
             onDismissRequest={ if(!registerBusy) keyGenerateConfirm=false },
-            title={ Text("注册端到端同步账户") },
+            title={ Text("注册云同步账户") },
             text={
                 Column(verticalArrangement=Arrangement.spacedBy(10.dp)){
                     Text("服务地址：${cleanBundledCloudUrl(st.cloudUrl)}",fontSize=12.sp,color=Color(0xFF6B7280),lineHeight=17.sp)
@@ -4769,14 +4596,10 @@ Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(8.dp)){
                                         val obj=runCatching{ JSONObject(msg) }.getOrNull()
                                         val token=cloudAuthTokenFrom(msg)
                                         val privateKey=cleanCloudApiKey(obj?.optString("privateKey","") ?: "")
-                                        val pwdSecret=runCatching{ deriveSimjCloudSecret(username,password) }.getOrDefault("")
                                         if(token.isBlank()){
                                             showCloudMsg(cloudAuthTokenMissingMessage(msg,"注册"))
-                                        }else if(pwdSecret.isBlank()){
-                                            showCloudMsg("注册成功但无法派生数据密钥")
                                         }else{
-                                            // 数据密钥=密码派生；私钥仅展示一次，用于忘记密码
-                                            val ns=st.copyMut{ cloudUrl=cleanBundledCloudUrl(st.cloudUrl); cloudUsername=username; cloudToken=token; cloudApiKey=pwdSecret; cloudDeviceId=cloudDeviceId.ifBlank{UUID.randomUUID().toString()}; cloudEnabled=true; cloudAutoSync=true }
+                                            val ns=st.copyMut{ cloudUrl=cleanBundledCloudUrl(st.cloudUrl); cloudUsername=username; cloudToken=token; cloudApiKey=""; cloudDeviceId=cloudDeviceId.ifBlank{UUID.randomUUID().toString()}; cloudEnabled=true; cloudAutoSync=true }
                                             st=ns
                                             on(ns)
                                             keyGenerateConfirm=false
@@ -4784,9 +4607,9 @@ Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(8.dp)){
                                             registerPassword=""
                                             registerPasswordAgain=""
                                             if(isValidCloudApiKey(privateKey)) showPrivateKeyOnce=privateKey
-                                            showCloudMsg("注册成功。日常登录只需账号密码即可自动恢复；私钥仅用于找回密码。")
+                                            showCloudMsg("注册成功。普通同步已启用；私钥仅用于找回密码。")
                                             if(records.isNotEmpty()){
-                                                cloudPost(ns,"/api/sync",cloudEncryptedPayload(records,ns)){ok2,msg2->
+                                                cloudPost(ns,"/api/sync",cloudPlainSyncPayload(records,ns)){ok2,msg2->
                                                     showCloudMsg(if(ok2) "已同步到新账户：${records.size} 个号码" else msg2)
                                                     if(ok2){ loadCloudOverview(); loadCloudReminderStatus() }
                                                 }
@@ -4847,7 +4670,7 @@ Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(8.dp)){
                 val merged=mergeRecords(cloudRecords,records)
                 val ns=mergeCloudSettings(st,cloudSettings)
                 st=ns
-                cloudPost(ns,"/api/sync",cloudEncryptedPayload(merged,ns)){ok,msg-> showCloudMsg(if(ok) "合并同步成功：${merged.size} 个号码" else msg); if(ok) loadCloudOverview() }
+                cloudPost(ns,"/api/sync",cloudPlainSyncPayload(merged,ns)){ok,msg-> showCloudMsg(if(ok) "合并同步成功：${merged.size} 个号码" else msg); if(ok) loadCloudOverview() }
             },
             onSecondary={ cloudSyncChoice=null; cloudOverwriteConfirm=true }
         )
@@ -4858,7 +4681,7 @@ Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(8.dp)){
             if(records.isEmpty()){
                 showCloudMsg("本地暂无号码")
             }else{
-                cloudPost(st,"/api/sync",cloudEncryptedPayload(records,st)){ok,msg-> showCloudMsg(if(ok) "覆盖云端完成：${records.size} 个号码" else msg); if(ok) loadCloudOverview() }
+                cloudPost(st,"/api/sync",cloudPlainSyncPayload(records,st)){ok,msg-> showCloudMsg(if(ok) "覆盖云端完成：${records.size} 个号码" else msg); if(ok) loadCloudOverview() }
             }
         })
     }
@@ -4959,7 +4782,7 @@ Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(8.dp)){
                 val ns=mergeCloudSettings(st,cloudSettings)
                 st=ns
                 onCloudRestore(merged,ns)
-                cloudPost(ns,"/api/sync",cloudEncryptedPayload(merged,ns)){_,_->}
+                cloudPost(ns,"/api/sync",cloudPlainSyncPayload(merged,ns)){_,_->}
                 showCloudMsg("合并恢复完成：${merged.size} 个号码，配置已同步")
             },
             onSecondary={
@@ -5373,7 +5196,7 @@ fun splitCsvLine(line:String):List<String>{
 }
 
 fun parseRecordObject(o:JSONObject)=PhoneNumberRecord(
-    id=o.optString("id",UUID.randomUUID().toString()), countryCode=o.optString("countryCode","+86"), countryName=o.optString("countryName","中国"), flag=o.optString("flag","🇨🇳"), number=o.optString("number"), operator=o.optString("operator"), expireDate=o.optString("expireDate",LocalDate.now().plusDays(30).toString()), note=o.optString("note"),
+    id=o.optString("id",UUID.randomUUID().toString()), countryCode=o.optString("countryCode","+86"), countryName=o.optString("countryName","中国"), flag=o.optString("flag","🇨🇳"), number=o.optString("number",o.optString("phoneNumber",o.optString("msisdn",o.optString("fullNumber","")))), operator=o.optString("operator"), expireDate=o.optString("expireDate",LocalDate.now().plusDays(30).toString()), note=o.optString("note"),
     balance=o.optString("balance"), eid=o.optString("eid"), smdp=o.optString("smdp"), activationCode=o.optString("activationCode"), startDate=o.optString("startDate",LocalDate.now().toString()), createdAt=o.optString("createdAt",LocalDate.now().toString()), activatedAt=o.optString("activatedAt"), longTerm=o.optBoolean("longTerm",false), cycleDays=o.optInt("cycleDays",30), signalStatus=o.optString("signalStatus","在线"), tags=o.optString("tags",""), transactionNotes=o.optString("transactionNotes",""), customPrompt=o.optString("customPrompt",""), websiteURL=o.optString("websiteURL",""), cyclePaymentMinorUnits=o.optInt("cyclePaymentMinorUnits",0), currencyCode=o.optString("currencyCode",""), cardBackgroundAssetName=o.optString("cardBackgroundAssetName",""), cardColorHex=o.optString("cardColorHex",""), cardType=o.optString("cardType","prepaid"), sortOrder=o.optInt("sortOrder",0)
 )
 fun hasRecordPayload(o:JSONObject):Boolean = listOf("id","number","phoneNumber","operator","carrier","countryCode","countryName","flag","eid","smdp","smdpAddress","activationCode","expireDate","expiryDate","note","balance","cardType","cardBackgroundAssetName").any{ o.optString(it).isNotBlank() }

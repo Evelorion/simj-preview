@@ -1,15 +1,16 @@
 # SIMJ Self-Hosted Cloud Backend
 
-SIMJ 的自建云同步后端：账号登录、端到端加密 vault 保存、备份、管理后台和 3D 地球页面。
+SIMJ 的自建云同步后端：账号登录、普通完整号码同步、备份、管理后台和 3D 地球页面。
 
 这个目录不包含任何项目维护者的服务器地址、账号或密码。部署时请使用你自己的 VPS、域名和凭据。
 
 ## 核心原则
 
-- 账号密码用于登录，也用于在 App/Web 端派生 vault 加密密钥。
+- 账号密码用于登录；同步数据按账号保存在服务器普通 payload 中。
 - 注册时返回的一次性 `privateKey` 只用于忘记密码时重置登录密码。
-- 服务器只保存密码哈希、私钥哈希、session、密文 `encryptedVault` 和 coverage 元数据。
-- 服务器不解密完整号码，不在管理员后台显示用户私钥尾号。
+- 服务器保存密码哈希、私钥哈希、session、完整号码 payload 和 coverage 元数据。
+- 普通同步取消端到端加密，服务器数据库可读取完整号码；请只部署在你信任的 VPS 上。
+- Web 3D 地图使用内置边界显示层，并对中国相关区域做产品侧显示修正；地图仅用于业务展示，不作为测绘依据。
 
 ## VPS 推荐配置
 
@@ -120,7 +121,7 @@ sudo chmod +x /opt/simjiang-reminder/backup.sh
 
 ## 4. 安装 Python 依赖
 
-后端使用标准库提供 HTTP 服务，并通过 `cryptography` 支持 Web 登录时的 vault 解密兼容逻辑。用 venv 安装最干净：
+后端使用标准库提供 HTTP 服务。`cryptography` 仅用于兼容旧版 `encryptedVault` 数据自动迁移；当前普通同步不再依赖端到端解密。用 venv 安装最干净：
 
 ```bash
 sudo python3 -m venv /opt/simjiang-reminder/.venv
@@ -249,7 +250,7 @@ http://<your-server-ip>:8787
 2. 注册第一个账号。第一个账号会自动成为 `owner`。
 3. 立即保存注册时显示的一次性 `privateKey`。它只用于忘记密码重置。
 4. 在 App 云同步里填写同一个服务地址，登录同一账号。
-5. 点击同步。App 会上传密文 `encryptedVault` 和 coverage 元数据。
+5. 点击同步。App 会上传普通完整号码 payload 和 coverage 元数据。
 6. 在 Web 登录同一账号，能看到国家覆盖和号码卡片，说明 App/Web/后端链路正常。
 
 ## 10. 后续更新
@@ -321,9 +322,10 @@ https://your-domain.example/admin
 
 管理员不能：
 
-- 查看用户完整号码明文。
+- 通过管理后台直接查看用户完整号码明文。
 - 查看用户私钥或私钥尾号。
-- 解密用户的 `encryptedVault`。
+
+注意：普通同步模式下，服务器数据库中的账号 payload 包含完整号码。VPS 管理员或拿到数据库的人可以读取这些数据，所以请只部署在可信服务器上。
 
 ## 备份与数据
 
@@ -344,15 +346,15 @@ bash /opt/simjiang-reminder/backup.sh
 
 - 定期把 `data.db` 和 `backups/` 复制到另一台机器或对象存储。
 - 开源前不要提交 `data.db`、`*.db-wal`、`*.db-shm`、备份包、日志和 SSH 密钥。
-- 删除账户会删除该账户的云端密文、备份和 session，不能从服务器恢复明文号码。
+- 删除账户会删除该账户的云端普通 payload、备份和 session，不能再从服务器恢复号码。
 
 ## 安全注意事项
 
 - 生产环境建议 HTTPS；Android 可访问 HTTP，但公网明文传输不推荐。
 - 不要把 `SIMJ_PASS`、SSH key、域名证书、数据库、真实服务器 IP 写进仓库。
 - `8787` 直连适合测试；正式服务建议 Nginx/Caddy 反代。
-- 修改用户名不会解密或重写用户 vault。新版 App 会读取加密包里的 salt 作为解密候选；旧版本 App 改名后可能需要升级再恢复。
-- 忘记密码后用 `privateKey` 重置的是登录密码，不会重加密旧 vault；需要在仍有本地号码的设备上重新同步一次。
+- 修改用户名不会改写已有 payload；建议用户登录后从 App 再同步一次。
+- 忘记密码后用 `privateKey` 重置的是登录密码，不影响当前普通同步 payload。
 
 ## 常用运维命令
 
@@ -370,6 +372,6 @@ sqlite3 /opt/simjiang-reminder/data.db "SELECT username,role,enabled FROM accoun
 | --- | --- |
 | 无法访问网页 | `systemctl status`、防火墙、VPS 安全组、端口 8787 |
 | HTTPS 后 App 登录失败 | 反代是否转发到 `127.0.0.1:8787`，证书是否有效 |
-| App 显示云端有数据但无法恢复 | 登录密码是否正确；旧 vault 是否用旧密码加密；必要时在有本地数据的设备重新同步 |
+| App 显示云端有数据但无法恢复 | 云端是否只有 coverage、没有普通 payload；必要时在有本地数据的设备重新同步 |
 | 管理后台无法登录 | 用户是否为 `owner/admin`，2FA 是否开启，系统时间是否准确 |
 | 数据库异常 | 先停服务，备份现有文件，再从 `backups/` 恢复 |

@@ -1,8 +1,8 @@
 # DsimJ Preview
 
-DsimJ — SIM 卡 & eSIM 全能管家。
+DsimJ — SIM 卡 & eSIM 号码管家。
 
-爱用AI的Doro 维护的 DsimJ 是基于 SIMJ 项目进行二次开发（二改）的 Android 工具，面向号码保号 + eSIM 管理。预览版包含最新实验性功能。
+爱用AI的Doro 维护的 DsimJ 是基于 SIMJ 项目进行二次开发（二改）的 Android 工具，面向号码保号、eSIM 管理、自建云同步和 Web 3D 地图查看。预览版包含最新实验性功能。
 
 ## 预览
 
@@ -31,11 +31,11 @@ DsimJ — SIM 卡 & eSIM 全能管家。
 
 继续改 **App / 云端 / 3D 地球 / 管理后台** 请先读：
 
-**→ [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md)**（完整：架构、E2EE、全部 API、App/Web 模块、部署、踩坑）
+**→ [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md)**（完整：架构、普通同步、全部 API、App/Web 模块、部署、踩坑）
 
 **→ [docs/HANDOFF-CHECKLIST.md](docs/HANDOFF-CHECKLIST.md)**（5 分钟清单）
 
-要点：云端号码 **用账号密码加解密**；**私钥只用于找回密码**。开源仓库不应包含任何真实服务器 IP、SSH 凭据、数据库或证书私钥。
+要点：当前云同步为 **普通账号同步**，服务器会保存当前账号的完整号码 payload；**私钥只用于找回密码**。请只部署在你信任的 VPS 上，开源仓库不应包含任何真实服务器 IP、SSH 凭据、数据库或证书私钥。
 
 云端服务目录：`server/simjiang-reminder/`。
 
@@ -49,11 +49,13 @@ DsimJ — SIM 卡 & eSIM 全能管家。
 
 - 📱 **号码保号管理** — 130+ 国家号码录入，智能到期提醒，批量管理
 - 🌐 **eSIM 管理** — 内置 eSIM (OMAPI) + USB 实体卡双通道，扫码/相册/手动下载 Profile
-- ☁️ **云端提醒** — Telegram Bot / SMTP 邮件 / 云端 API 同步 + 自建服务地址自定义
+- ☁️ **自建云同步** — 账号登录后普通同步完整号码，Web 同账号可直接查看号码卡片
+- 🌍 **Web 3D 地图** — 高亮有号码的国家/地区，内置中国相关区域显示修正
+- 🔔 **提醒通道** — Telegram Bot / SMTP 邮件 / 云端 API 同步 + 自建服务地址自定义
 - 🛠️ **实用工具** — 刷流量测试、拨号测试、JSON/CSV 导入导出
 - 🌙 **深色模式** — 全局适配
 - 🌍 **多语言** — 简体中文、繁体中文、English、日本語、阿拉伯语 (RTL)
-- 🔒 **本地存储** — 数据不上传，隐私安全
+- 🔒 **自控数据** — 默认本地保存；启用云同步时数据写入你自己的后端
 - 🚫 **零广告** — 纯工具，无打扰
 
 ## 构建
@@ -91,4 +93,4 @@ gradle assembleRelease --no-daemon --max-workers=1
 | 端口 | 默认 8787，可用反代隐藏 |
 | VPS | 1 vCPU / 1 GB RAM / 10 GB SSD 起步 |
 
-服务端只保存密文 `encryptedVault` 和 coverage 元数据，不解密完整号码。App 端需要在云同步设置里填写自己的服务地址，例如 `https://your-domain.example` 或 `http://<your-server-ip>:8787`。
+普通同步模式下，服务端保存当前账号的完整号码 payload 和 coverage 元数据；网页登录同账号后可直接展示完整号码。请只把后端部署在你信任的 VPS 上。App 端需要在云同步设置里填写自己的服务地址，例如 `https://your-domain.example` 或 `http://<your-server-ip>:8787`。

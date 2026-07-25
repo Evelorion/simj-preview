@@ -1,16 +1,14 @@
 /**
  * simJ Web Portal — login + map highlight + full number cards (account session).
- * Numbers come from App coverage samples (auth-only) and/or E2EE vault decrypt.
+ * Numbers come from ordinary account sync payload plus coverage samples.
  */
 (() => {
   const $ = (id) => document.getElementById(id);
-  const SIMJ_AAD = new TextEncoder().encode("simj:e2ee:v1");
-  const SIMJ_ITER = 310000;
 
   async function api(method, path, body) {
     const headers = {};
     if (body) headers["Content-Type"] = "application/json";
-    const token = sessionStorage.getItem("simj_session_token") || "";
+    const token = storageGet("simj_session_token");
     if (token) headers.Authorization = `Bearer ${token}`;
     const res = await fetch(path, {
       method,
@@ -25,109 +23,60 @@
     return data;
   }
 
-  /* ---------- crypto (match App password-derived vault) ---------- */
-  function b64uToBytes(text) {
-    const s = String(text || "").replace(/-/g, "+").replace(/_/g, "/");
-    const pad = "=".repeat((4 - (s.length % 4)) % 4);
-    const bin = atob(s + pad);
-    const out = new Uint8Array(bin.length);
-    for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
-    return out;
-  }
-  function bytesToB64u(bytes) {
-    let bin = "";
-    const arr = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
-    for (let i = 0; i < arr.length; i++) bin += String.fromCharCode(arr[i]);
-    return btoa(bin).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
-  }
-  async function sha256Bytes(bytes) {
-    return new Uint8Array(await crypto.subtle.digest("SHA-256", bytes));
-  }
-  async function aesKeyBytesFromSecret(secret) {
-    let raw;
+  function storageGet(key) {
     try {
-      raw = b64uToBytes(secret);
+      return sessionStorage.getItem(key) || localStorage.getItem(key) || "";
     } catch (_) {
-      raw = new TextEncoder().encode(String(secret || ""));
-    }
-    if (raw.length === 16 || raw.length === 24 || raw.length === 32) return raw;
-    if (raw.length > 32) return raw.slice(0, 32);
-    if (!raw.length) throw new Error("empty vault key");
-    return sha256Bytes(raw);
-  }
-  async function deriveSimjCloudSecret(username, password) {
-    const saltSrc = new TextEncoder().encode("simj:e2ee:v1:" + String(username || "").trim().toLowerCase());
-    const hash = await crypto.subtle.digest("SHA-256", saltSrc);
-    const salt = new Uint8Array(hash).slice(0, 16);
-    return deriveSimjCloudSecretWithSalt(password, salt, SIMJ_ITER);
-  }
-  async function deriveSimjCloudSecretWithSalt(password, salt, iterations) {
-    const material = await crypto.subtle.importKey(
-      "raw",
-      new TextEncoder().encode(password),
-      "PBKDF2",
-      false,
-      ["deriveBits"]
-    );
-    const bits = await crypto.subtle.deriveBits(
-      { name: "PBKDF2", salt, iterations: Math.max(10000, Number(iterations || SIMJ_ITER)), hash: "SHA-256" },
-      material,
-      256
-    );
-    return bytesToB64u(new Uint8Array(bits));
-  }
-  async function passwordVaultSecrets(username, password, envelope = {}) {
-    if (!password) return [];
-    const user = String(username || "").trim();
-    const out = [];
-    const add = (value) => {
-      if (value && !out.includes(value)) out.push(value);
-    };
-    add(await deriveSimjCloudSecret(user, password));
-    add(await deriveSimjCloudSecret(user.toLowerCase(), password));
-    if (envelope && envelope.salt) {
       try {
-        add(await deriveSimjCloudSecretWithSalt(password, b64uToBytes(envelope.salt), envelope.iter || SIMJ_ITER));
-      } catch (_) {}
-    }
-    add(bytesToB64u(await sha256Bytes(new TextEncoder().encode(`${user.toLowerCase()}:${password}`))));
-    add(bytesToB64u(await sha256Bytes(new TextEncoder().encode(password))));
-    return out;
-  }
-  async function decryptVaultEnvelopeWithSecret(envelope, secretB64u, withAad = true) {
-    const keyBytes = await aesKeyBytesFromSecret(secretB64u);
-    const key = await crypto.subtle.importKey("raw", keyBytes, "AES-GCM", false, ["decrypt"]);
-    const nonce = b64uToBytes(envelope.nonce);
-    const ct = b64uToBytes(envelope.ciphertext || envelope.cipherText || "");
-    const tag = b64uToBytes(envelope.tag || "");
-    const sealed = new Uint8Array(ct.length + tag.length);
-    sealed.set(ct, 0);
-    if (tag.length) sealed.set(tag, ct.length);
-    const plain = await crypto.subtle.decrypt(
-      withAad
-        ? { name: "AES-GCM", iv: nonce, additionalData: SIMJ_AAD, tagLength: 128 }
-        : { name: "AES-GCM", iv: nonce, tagLength: 128 },
-      key,
-      sealed
-    );
-    return JSON.parse(new TextDecoder().decode(plain));
-  }
-  async function decryptVaultEnvelope(envelope, secrets) {
-    const list = (Array.isArray(secrets) ? secrets : [secrets]).filter(Boolean);
-    let lastError = null;
-    for (const secret of [...new Set(list)]) {
-      try {
-        return await decryptVaultEnvelopeWithSecret(envelope, secret, true);
-      } catch (e) {
-        lastError = e;
-      }
-      try {
-        return await decryptVaultEnvelopeWithSecret(envelope, secret, false);
-      } catch (e) {
-        lastError = e;
+        return sessionStorage.getItem(key) || "";
+      } catch (_) {
+        return "";
       }
     }
-    throw lastError || new Error("vault decrypt failed");
+  }
+
+  function storageSet(key, value) {
+    const text = String(value || "");
+    try {
+      sessionStorage.setItem(key, text);
+    } catch (_) {}
+    try {
+      localStorage.setItem(key, text);
+    } catch (_) {}
+  }
+
+  function storageRemove(key) {
+    try {
+      sessionStorage.removeItem(key);
+    } catch (_) {}
+    try {
+      localStorage.removeItem(key);
+    } catch (_) {}
+  }
+
+  function storageUserKey(base, username) {
+    const user = String(username || currentUsername || "").trim().toLowerCase();
+    return user ? `${base}:${user}` : base;
+  }
+
+  function saveVaultCards(cards, username) {
+    const user = String(username || currentUsername || "").trim();
+    const text = JSON.stringify(cards || []);
+    storageSet("simj_vault_cards", text);
+    storageSet("simj_vault_user", user);
+    if (user) storageSet(storageUserKey("simj_vault_cards", user), text);
+  }
+
+  function clearStoredSession(username) {
+    const user = String(username || currentUsername || storageGet("simj_vault_user") || "").trim();
+    [
+      "simj_session_token",
+      "simj_vault_secret",
+      "simj_vault_user",
+      "simj_vault_cards",
+      storageUserKey("simj_vault_secret", user),
+      storageUserKey("simj_vault_cards", user),
+    ].forEach(storageRemove);
   }
 
   /* ---------- styles ---------- */
@@ -404,7 +353,7 @@
   let serverSettings = { allowRegistration: true, users: 0 };
   let pendingPrivateKey = "";
   let rotating = true;
-  /** @type {Array<any>} decrypted / coverage-derived cards */
+  /** @type {Array<any>} ordinary-sync / coverage-derived cards */
   let allCards = [];
   let galleryFilter = "all"; // all | esim | sim
   let galleryIso = ""; // optional country filter
@@ -485,31 +434,48 @@
     return isFullNumberText(card?.number || card?.display);
   }
 
+  function isMaskedPlaceholder(value) {
+    const s = String(value || "").trim();
+    return !!s && /^[*＊•\s?]+$/.test(s);
+  }
+
+  function parseJsonMaybe(value) {
+    if (typeof value !== "string") return value;
+    const text = value.trim();
+    if (!text || (!text.startsWith("{") && !text.startsWith("["))) return value;
+    try {
+      return JSON.parse(text);
+    } catch (_) {
+      return value;
+    }
+  }
+
   function normalizeCard(raw, isoFallback = "", nameFallback = "") {
-    const number = String(raw.number || raw.num || "").trim();
+    const number = String(raw.number || raw.num || raw.phoneNumber || raw.msisdn || raw.fullNumber || raw.value || "").trim();
+    const rawMask = String(raw.mask || "").trim();
     const last4 =
       String(raw.last4 || "").replace(/\D/g, "").slice(-4) ||
       number.replace(/\D/g, "").slice(-4) ||
       "????";
-    const display = number || raw.mask || `•••• ${last4}`;
-    const code = String(raw.code || raw.countryCode || "").trim();
+    const display = number || (last4 !== "????" && !isMaskedPlaceholder(rawMask) ? rawMask : "") || (last4 !== "????" ? `•••• ${last4}` : "");
+    const code = String(raw.code || raw.countryCode || raw.dialCode || raw.countryDialCode || "").trim();
     const esim = isEsimLike(raw);
     return {
       id: String(raw.id || ""),
       iso: String(raw.iso || isoFallback || "").toUpperCase(),
-      name: String(raw.name || raw.countryName || nameFallback || ""),
+      name: String(raw.name || raw.countryName || raw.country || nameFallback || ""),
       flag: String(raw.flag || ""),
       number,
       last4,
       display,
       code,
-      op: String(raw.op || raw.operator || raw.name || "号码").trim() || "号码",
+      op: String(raw.op || raw.operator || raw.carrier || raw.provider || raw.name || "号码").trim() || "号码",
       esim,
-      expire: String(raw.expire || raw.expireDate || ""),
+      expire: String(raw.expire || raw.expireDate || raw.expiresAt || raw.validUntil || ""),
       balance: String(raw.balance || ""),
-      note: String(raw.note || ""),
-      signal: String(raw.signal || raw.signalStatus || ""),
-      cardType: String(raw.cardType || ""),
+      note: String(raw.note || raw.memo || raw.remark || ""),
+      signal: String(raw.signal || raw.signalStatus || raw.status || ""),
+      cardType: String(raw.cardType || raw.type || ""),
     };
   }
 
@@ -599,22 +565,42 @@
     return [...map.values()];
   }
 
+  function extractVaultRecords(payload, depth = 0) {
+    if (depth > 5 || payload == null) return [];
+    const value = parseJsonMaybe(payload);
+    if (Array.isArray(value)) return value;
+    if (!value || typeof value !== "object") return [];
+    for (const key of ["records", "cards", "numbers", "phoneNumbers", "items"]) {
+      const found = extractVaultRecords(value[key], depth + 1);
+      if (found.length) return found;
+    }
+    for (const key of ["payload", "data", "vaultPayload", "plain", "body"]) {
+      const found = extractVaultRecords(value[key], depth + 1);
+      if (found.length) return found;
+    }
+    return [];
+  }
+
   function cardsFromVaultRecords(records) {
     if (!Array.isArray(records)) return [];
-    return records.map((r) =>
-      normalizeCard(
+    return records.map((item) => {
+      const parsed = parseJsonMaybe(item);
+      const r = parsed && typeof parsed === "object" ? parsed : { number: parsed };
+      return normalizeCard(
         {
           id: r.id,
-          number: r.number,
-          code: r.countryCode,
-          op: r.operator,
-          name: r.countryName,
+          number: r.number || r.num || r.phoneNumber || r.msisdn || r.fullNumber,
+          last4: r.last4,
+          mask: r.mask,
+          code: r.countryCode || r.code || r.dialCode,
+          op: r.operator || r.op || r.carrier || r.provider,
+          name: r.countryName || r.name || r.country,
           flag: r.flag,
-          expire: r.expireDate,
+          expire: r.expireDate || r.expire || r.expiresAt,
           balance: r.balance,
-          note: r.note,
-          signal: r.signalStatus,
-          cardType: r.cardType,
+          note: r.note || r.memo || r.remark,
+          signal: r.signalStatus || r.signal || r.status,
+          cardType: r.cardType || r.type,
           eid: r.eid,
           smdp: r.smdp,
           activationCode: r.activationCode,
@@ -623,32 +609,44 @@
         },
         "",
         r.countryName || ""
-      )
-    );
+      );
+    });
   }
 
   function applyVaultPayload(payload, persist = true) {
-    const records = Array.isArray(payload?.records) ? payload.records : [];
+    const records = extractVaultRecords(payload);
     const cards = cardsFromVaultRecords(records);
     window.__SIMJ_VAULT_CARDS = cards;
-    vaultUnlocked = cards.some(cardHasFullNumber);
+    vaultUnlocked = cards.length > 0;
     if (persist) {
       try {
-        sessionStorage.setItem("simj_vault_cards", JSON.stringify(cards));
+        saveVaultCards(cards, currentUsername);
       } catch (_) {}
     }
     rebuildCards();
     return vaultUnlocked;
   }
 
-  function restoreStoredVaultCards() {
+  function restoreStoredVaultCards(username) {
+    const user = String(username || currentUsername || "").trim();
     try {
-      const cards = JSON.parse(sessionStorage.getItem("simj_vault_cards") || "[]");
+      let raw = user ? storageGet(storageUserKey("simj_vault_cards", user)) : "";
+      if (!raw) {
+        const savedUser = storageGet("simj_vault_user");
+        if (!user || savedUser.trim().toLowerCase() === user.toLowerCase()) {
+          raw = storageGet("simj_vault_cards");
+        }
+      }
+      const cards = JSON.parse(raw || "[]");
       if (Array.isArray(cards) && cards.length) {
         window.__SIMJ_VAULT_CARDS = cards;
-        vaultUnlocked = cards.some(cardHasFullNumber);
+        vaultUnlocked = cards.length > 0;
+        return vaultUnlocked;
       }
     } catch (_) {}
+    window.__SIMJ_VAULT_CARDS = [];
+    vaultUnlocked = false;
+    return false;
   }
 
   function mergeCards(primary, secondary) {
@@ -666,7 +664,13 @@
           name: c.name || prev.name,
           code: c.code || prev.code,
           number: c.number || prev.number,
-          display: c.number || prev.number || c.display || prev.display,
+          last4: c.last4 && c.last4 !== "????" ? c.last4 : prev.last4,
+          display:
+            c.number ||
+            prev.number ||
+            (c.last4 && c.last4 !== "????" ? c.display : "") ||
+            prev.display ||
+            c.display,
           op: c.op && c.op !== "号码" ? c.op : prev.op,
         });
       }
@@ -687,13 +691,11 @@
     if ($("simj-open-sub")) {
       $("simj-open-sub").textContent = n
         ? vaultUnlocked
-          ? `${n} 张卡 · ${esimN} eSIM · 完整号码已解锁`
-          : `${n} 张尾号预览 · 重新登录后显示完整号码`
+          ? `${n} 张卡 · ${esimN} eSIM · 普通同步已加载`
+          : `${n} 张卡 · ${esimN} eSIM`
         : "App 同步后点此查看全部号码卡片";
     }
   }
-
-  restoreStoredVaultCards();
 
   function applyCoverage(next) {
     coverage = next || { countries: [] };
@@ -763,6 +765,45 @@
     if (el) el.remove();
   }
 
+  async function saveCardNumber(card, rerender) {
+    if (!card?.id) {
+      msg("这张卡缺少记录 ID，不能直接填写号码", true);
+      return;
+    }
+    const title = card.op || card.name || "这张卡";
+    const value = window.prompt(`填写 ${title} 的完整号码`, card.number || "");
+    if (value === null) return;
+    const number = value.trim();
+    if (number.replace(/\D/g, "").length < 3) {
+      msg("请输入完整号码", true);
+      return;
+    }
+    try {
+      const data = await api("POST", "/api/account/record-number", { id: card.id, number });
+      if (data.coverage) applyCoverage(data.coverage);
+      if (data.vaultPayload) applyVaultPayload(data.vaultPayload);
+      msg("号码已保存");
+      if (typeof rerender === "function") rerender();
+    } catch (e) {
+      msg(e.message || String(e), true);
+    }
+  }
+
+  async function showLoginForMigration() {
+    try {
+      await api("POST", "/api/account/logout", {});
+    } catch (_) {}
+    clearStoredSession(currentUsername);
+    window.__SIMJ_VAULT_CARDS = [];
+    vaultUnlocked = false;
+    closeGallery();
+    $("simj-dash").classList.add("simj-hidden");
+    $("simj-auth").classList.remove("simj-hidden");
+    $("simj-logout").classList.add("simj-hidden");
+    setMode("login");
+    msg("当前账号还没有普通同步完整号码，请在 App 登录同账号后点「同步到云端」");
+  }
+
   function openGallery(opts = {}) {
     galleryIso = String(opts.iso || "").toUpperCase();
     galleryFilter = opts.filter || "all";
@@ -777,7 +818,7 @@
         <div class="simj-gallery-hd">
           <div>
             <h3 id="simj-g-title">${galleryIso ? `我的号码 · ${galleryIso}` : "我的号码"}</h3>
-            <p id="simj-g-sub">完整号码仅本账号可见 · 与 App 同步一致</p>
+            <p id="simj-g-sub">普通同步数据 · 与 App 同步一致</p>
           </div>
           <div class="simj-gallery-tools">
             <button type="button" data-f="all" class="${galleryFilter === "all" ? "active" : ""}">全部</button>
@@ -797,43 +838,51 @@
       const sub = wrap.querySelector("#simj-g-sub");
       const hint = Number(coverage.records || 0);
       if (sub) {
-        sub.textContent = vaultUnlocked
-          ? `${cards.length} 张卡片 · 点卡片可复制完整号码`
-          : `${hint || cards.length} 个号码 · 当前会话还未解锁完整号码`;
+        const missing = cards.filter((c) => !cardHasFullNumber(c)).length;
+        sub.textContent = cards.length
+          ? missing
+            ? `${cards.length} 张卡片 · ${missing} 张未填写号码，点卡片填写`
+            : `${cards.length} 张卡片 · 点卡片可复制号码`
+          : `${hint || cards.length} 个号码`;
       }
       body.innerHTML = "";
-      if ((hint > 0 || cards.length > 0) && !vaultUnlocked) {
+      if (hint > 0 && !cards.length) {
         body.innerHTML = `
           <div class="simj-unlock">
             <div class="simj-unlock-box">
-              <b>需要重新登录以显示完整号码</b>
-              <p>当前页面只有尾号预览。退出后重新用账号密码登录，Web 会在登录时自动解锁并显示全部完整号码，不需要在这里再输入一次密码。</p>
-              <button type="button" id="simj-relogin-btn">重新登录并显示全部号码</button>
-              <div class="simj-unlock-error">完整号码不会从服务器统计读取，只从本账号加密仓库解出。</div>
+              <b>还没有普通同步完整号码</b>
+              <p>当前账号已有号码统计，但服务器收到的普通 payload 里没有可显示的完整号码。请在有本地完整号码的 App 上点一次「同步到云端」。</p>
+              <button type="button" id="simj-reload-vault-btn">重新读取普通同步</button>
+              <div class="simj-unlock-error" id="simj-reload-vault-error">不会在这里再次要求输入账号密码。</div>
             </div>
           </div>`;
-        const reloginBtn = body.querySelector("#simj-relogin-btn");
-        reloginBtn.onclick = async () => {
+        const reloadBtn = body.querySelector("#simj-reload-vault-btn");
+        const reloadErr = body.querySelector("#simj-reload-vault-error");
+        const reload = async () => {
+          reloadBtn.disabled = true;
+          reloadErr.textContent = "正在加载...";
           try {
-            await api("POST", "/api/account/logout", {});
-          } catch (_) {}
-          sessionStorage.removeItem("simj_session_token");
-          sessionStorage.removeItem("simj_vault_secret");
-          sessionStorage.removeItem("simj_vault_user");
-          sessionStorage.removeItem("simj_vault_cards");
-          window.__SIMJ_VAULT_CARDS = [];
-          vaultUnlocked = false;
-          closeGallery();
-          $("simj-dash").classList.add("simj-hidden");
-          $("simj-auth").classList.remove("simj-hidden");
-          $("simj-logout").classList.add("simj-hidden");
-          msg("请重新登录，登录成功后会自动显示完整号码");
+            const me = await api("GET", "/api/account/me");
+            let ok = false;
+            if (me.vaultPayload) ok = applyVaultPayload(me.vaultPayload);
+            if (!ok) throw new Error("当前账号还没有普通同步完整号码。请在 App 登录同账号后点「同步到云端」。");
+            msg("已读取普通同步号码");
+            render();
+          } catch (e) {
+            reloadErr.textContent = e.message || String(e);
+          } finally {
+            reloadBtn.disabled = false;
+          }
         };
+        reloadBtn.onclick = async () => {
+          await reload();
+        };
+        setTimeout(reload, 80);
         return;
       }
       if (!cards.length) {
         if (hint > 0) {
-          body.innerHTML = `<div class="simj-empty">云端有 ${hint} 个号码，但当前登录没有解出可显示的完整号码。<br>请退出后重新登录一次，登录成功会自动显示全部号码。</div>`;
+          body.innerHTML = `<div class="simj-empty">云端有 ${hint} 个号码统计，但普通 payload 没有完整号码。<br>请在有本地完整号码的 App 上点「同步到云端」。</div>`;
         } else {
           body.innerHTML = `<div class="simj-empty">暂无号码卡片。<br>请在最新版 App 登录同一账号后点「同步到云端」。</div>`;
         }
@@ -843,12 +892,14 @@
         const el = document.createElement("div");
         el.className = "simj-phone-card";
         const title = c.op || c.name || "号码";
-        const fullNum = c.number ? displayCardNumber(c) : [c.code, c.display].filter(Boolean).join(" ").trim();
+        const hasNumber = cardHasFullNumber(c);
+        const fullNum = hasNumber ? displayCardNumber(c, true) : "未填写号码";
         const metaBits = [
           c.name || c.iso,
           c.expire ? `到期 ${c.expire}` : "",
           c.balance ? `余额 ${c.balance}` : "",
           c.signal || "",
+          hasNumber ? "" : "点击填写",
         ].filter(Boolean);
         el.innerHTML = `
           <div class="top">
@@ -859,11 +910,15 @@
           <div class="meta">${escapeHtml(metaBits.join(" · ") || "App 已同步")}</div>
         `;
         el.onclick = async () => {
+          if (!hasNumber) {
+            await saveCardNumber(c, render);
+            return;
+          }
           try {
-            await navigator.clipboard.writeText(fullNum || c.display);
-            msg("已复制：" + (fullNum || c.display));
+            await navigator.clipboard.writeText(fullNum);
+            msg("已复制：" + fullNum);
           } catch (_) {
-            msg(fullNum || c.display);
+            msg(fullNum);
           }
         };
         body.appendChild(el);
@@ -892,32 +947,6 @@
       .replace(/"/g, "&quot;");
   }
 
-  async function pullVaultIfPossible(username, password) {
-    try {
-      const storedSecret = sessionStorage.getItem("simj_vault_secret") || "";
-      const user = username || sessionStorage.getItem("simj_vault_user") || currentUsername || "";
-      const sync = await api("GET", "/api/sync");
-      const env = sync.encryptedVault || sync.envelope;
-      if (!env || !env.ciphertext) return false;
-      let secrets = [];
-      if (password && user) {
-        secrets = await passwordVaultSecrets(user, password, env);
-        if (secrets[0]) {
-          sessionStorage.setItem("simj_vault_secret", secrets[0]);
-          sessionStorage.setItem("simj_vault_user", user);
-        }
-      } else if (storedSecret) {
-        secrets = [storedSecret];
-      }
-      if (!secrets.length) return false;
-      const payload = await decryptVaultEnvelope(env, secrets);
-      return applyVaultPayload(payload);
-    } catch (e) {
-      console.warn("[SIMJ] vault decrypt", e);
-      return false;
-    }
-  }
-
   async function loadMe(opts = {}) {
     const me = await api("GET", "/api/account/me");
     $("simj-auth").classList.add("simj-hidden");
@@ -928,20 +957,24 @@
     $("simj-role").textContent = me.canAdmin ? String(me.role || "ADMIN").toUpperCase() : "USER";
     $("simj-sub").textContent = "号码卡片 · 地图高亮";
     if ($("simj-hintline")) {
-      $("simj-hintline").textContent = "同账号可见完整号码 · 点下方按钮看卡片";
+      $("simj-hintline").textContent = "普通同步号码 · 点下方按钮看卡片";
     }
     serverSettings = { ...serverSettings, ...(me.serverSettings || {}) };
     renderSettings();
+    restoreStoredVaultCards(currentUsername);
     applyCoverage(me.coverage || { countries: [] });
+    let sessionVaultOk = false;
+    if (me.vaultPayload) {
+      sessionVaultOk = applyVaultPayload(me.vaultPayload);
+    }
 
     if (opts.password) {
-      let ok = false;
-      if (opts.vaultPayload) ok = applyVaultPayload(opts.vaultPayload);
-      if (!ok) ok = await pullVaultIfPossible(currentUsername, opts.password);
-      if (ok) msg("登录成功 · 已解密云端完整号码");
-      else msg("登录成功 · 已加载同步号码（如缺完整号请在 App 再同步一次）");
+      let ok = sessionVaultOk;
+      if (!ok && opts.vaultPayload) ok = applyVaultPayload(opts.vaultPayload);
+      if (ok) msg("登录成功 · 已读取普通同步号码");
+      else msg("登录成功 · 当前账号还没有普通同步完整号码");
     } else {
-      await pullVaultIfPossible();
+      if (!sessionVaultOk) msg("当前账号还没有普通同步完整号码，请在 App 同步一次");
     }
   }
 
@@ -1014,7 +1047,7 @@
       if (mode === "login") {
         if (password.length < 8) throw new Error("请输入至少 8 位密码");
         const data = await api("POST", "/api/account/login", { username, password });
-        if (data.token) sessionStorage.setItem("simj_session_token", data.token);
+        if (data.token) storageSet("simj_session_token", data.token);
         await loadMe({ password, vaultPayload: data.vaultPayload });
         $("simj-pass").value = "";
         return;
@@ -1024,7 +1057,7 @@
         if (password.length < 8) throw new Error("密码至少 8 位");
         if (password !== password2) throw new Error("两次密码不一致");
         const data = await api("POST", "/api/account/register", { username, password });
-        if (data.token) sessionStorage.setItem("simj_session_token", data.token);
+        if (data.token) storageSet("simj_session_token", data.token);
         if (data.privateKey) showPrivateKeyOnce(data.privateKey);
         await loadMe({ password });
         $("simj-pass").value = "";
@@ -1063,10 +1096,7 @@
     try {
       await api("POST", "/api/account/logout", {});
     } catch (_) {}
-    sessionStorage.removeItem("simj_session_token");
-    sessionStorage.removeItem("simj_vault_secret");
-    sessionStorage.removeItem("simj_vault_user");
-    sessionStorage.removeItem("simj_vault_cards");
+    clearStoredSession(currentUsername);
     window.__SIMJ_VAULT_CARDS = [];
     vaultUnlocked = false;
     location.reload();
