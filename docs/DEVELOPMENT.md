@@ -1,7 +1,7 @@
 # SIMJ 全栈开发文档（接手必读）
 
 > 目标：不翻聊天记录也能改 **Android App / 3D 地球 Web / Python 云端 / 管理后台**。
-> 最后对齐：后端 `v7-plain-sync` · App `3.0.24-pre` · Web 缓存 `?v=plain-sync-map-tibet-merge-20260726`
+> 最后对齐：后端 `v7-plain-sync` · App `3.0.24-pre` · Web 缓存 `?v=plain-sync-map-tibet-20260726`
 > 仓库根目录：`simj-preview/`
 
 ---
@@ -469,7 +469,7 @@ eSIM 判定（coverage）：`cardType/note/tags` 含 esim，或 eid/smdp/activat
 
 地图边界说明：
 
-- `web/index.html` 和 `web/app/globe-app.js` 会注入 `CN_TIBET` 覆盖层，保证整个西藏区域在产品地图上按中国显示；覆盖层无独立描边，并会遮住底层边界线，避免西藏与中国本体之间出现分割线。旧 `CN_ZANGNAN` 仅作为历史样式兼容。
+- `web/index.html` 和 `web/app/globe-app.js` 会注入 `CN_TIBET` 覆盖层，保证整个西藏区域在产品地图上按中国显示；旧 `CN_ZANGNAN` 仅作为历史样式兼容。
 - 台湾条目使用“中国台湾省”命名，Web/App 均不显示独立国旗。
 - 地图供应商/来源：3D 渲染为 `globe.gl`；国家边界为 Natural Earth 110m（本地 `/web/data/countries.geojson`，缺失时使用 globe.gl 示例镜像）；卫星瓦片为 Esri ArcGIS World Imagery；标准地图瓦片为 OpenStreetMap。
 - 地图显示、边界覆盖层和 `privateKey` 无关；`privateKey` 只用于忘记密码重置登录密码。
