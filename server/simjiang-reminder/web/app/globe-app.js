@@ -152,6 +152,8 @@ function ringArea(r){const p=r.pts;let a=0;for(let i=0,j=p.length-1;i<p.length;j
 function ringContains(r,lng,lat){if(lat<r.minY||lat>r.maxY||r.pts.length<3)return false;let x=lng;while(x-r.centerX>180)x-=360;while(x-r.centerX<-180)x+=360;if(x<r.minX||x>r.maxX)return false;let inside=false;const pts=r.pts;for(let i=0,j=pts.length-1;i<pts.length;j=i++){const xi=pts[i][0],yi=pts[i][1],xj=pts[j][0],yj=pts[j][1];if(((yi>lat)!==(yj>lat))&&(x<(xj-xi)*(lat-yi)/((yj-yi)||Number.EPSILON)+xi))inside=!inside}return inside}
 function featureContains(c,lat,lng){if(lat<c.__minLat||lat>c.__maxLat)return false;for(const poly of c.__polys){if(!ringContains(poly[0],lng,lat))continue;let hole=false;for(let i=1;i<poly.length;i++)if(ringContains(poly[i],lng,lat)){hole=true;break}if(!hole)return true}return false}
 function countryKey(c){if(!c)return'';const p=c.properties||{};if(p.SIMJ_KEY)return String(p.SIMJ_KEY);const iso3=String(c.__iso3||p.ISO_A3||p['ISO3166-1-Alpha-3']||'').toUpperCase();const iso2=String(c.__iso2||p.ISO_A2||p['ISO3166-1-Alpha-2']||'').toUpperCase();return(iso3&&iso3!=='-99'?iso3:'')||(iso2&&iso2!=='-99'?iso2:'')||c.__nameEn||c.__nameZh||p.ADMIN||p.NAME||p.name||''}
+function isTibetOverlayFeature(c){const overlay=c?.properties?.SIMJ_OVERLAY||c?.SIMJ_OVERLAY||'';return overlay==='CN_TIBET'||overlay==='CN_ZANGNAN'||c?.__tibetOverlay===true}
+function pathOverlapsTibetOverlay(path,tibet){if(!tibet||!path?.points?.length)return false;if(isTibetOverlayFeature(path.country))return true;const pts=path.points,n=pts.length;const samples=[pts[Math.floor(n*.25)],pts[Math.floor(n*.5)],pts[Math.floor(n*.75)]].filter(Boolean);return samples.some(p=>featureContains(tibet,p.lat,p.lng))}
 function centerDistance(coords,c){let dlng=Math.abs(coords.lng-c.__center.lng);if(dlng>180)dlng=360-dlng;const dx=dlng*Math.cos(coords.lat*Math.PI/180),dy=coords.lat-c.__center.lat;return Math.hypot(dx,dy)}
 function buildCountryGrid(countries){
   const cell=8; // degrees
@@ -410,10 +412,10 @@ function applyBluePolygonStyle(){
   if(!state.globe) return;
   // Higher altitude + no transition = no z-fight flash on satellite tiles
   state.globe
-    .polygonAltitude(d=>d.__selected?0.012:0.008)
-    .polygonCapColor(d=>d.__selected?SIMJ_BLUE.selCap:(d.__esim?SIMJ_BLUE.esimCap:'rgba(56,189,248,.35)'))
-    .polygonSideColor(d=>d.__selected?SIMJ_BLUE.selSide:(d.__esim?SIMJ_BLUE.esimSide:'rgba(14,116,180,.12)'))
-    .polygonStrokeColor(d=>d.__selected?'rgba(186,230,253,0)':(d.__esim?'rgba(125,211,252,0)':'rgba(125,211,252,0)'))
+    .polygonAltitude(d=>d.__tibetOverlay?0.018:(d.__selected?0.012:0.008))
+    .polygonCapColor(d=>d.__tibetOverlay?'rgba(96,165,250,.96)':(d.__selected?SIMJ_BLUE.selCap:(d.__esim?SIMJ_BLUE.esimCap:'rgba(56,189,248,.35)')))
+    .polygonSideColor(d=>d.__tibetOverlay?'rgba(0,0,0,0)':(d.__selected?SIMJ_BLUE.selSide:(d.__esim?SIMJ_BLUE.esimSide:'rgba(14,116,180,.12)')))
+    .polygonStrokeColor(d=>d.__tibetOverlay?'rgba(125,211,252,0)':(d.__selected?'rgba(186,230,253,0)':(d.__esim?'rgba(125,211,252,0)':'rgba(125,211,252,0)')))
     .polygonsTransitionDuration(0);
   try{
     const THREE=window.THREE||self.THREE;
@@ -433,6 +435,15 @@ function paintSelectionAndCoverage(selectedCountry){
   const esimList=listEsimCoverageCountries();
   const selectedIso=String(selectedCountry?.__iso2||'').toUpperCase();
   const features=[];
+  const tibetOverlay=(state.countries||[]).find(isTibetOverlayFeature);
+  if(tibetOverlay){
+    features.push({
+      geometry:paintGeometryForCountry(tibetOverlay,false),
+      iso2:'CN_TIBET',
+      name:'中国西藏',
+      __tibetOverlay:true,
+    });
+  }
   for(const item of esimList){
     const iso=String(item.iso||'').toUpperCase();
     const cc=(state.countries||[]).find(y=>String(y.__iso2||'').toUpperCase()===iso);
@@ -462,7 +473,7 @@ function paintSelectionAndCoverage(selectedCountry){
   }
   try{
     const list=features.filter(f=>f.geometry);
-    const sig=list.map(f=>(f.iso2||'')+':'+(f.__selected?1:0)+':'+(f.__esim?1:0)).join('|');
+    const sig=list.map(f=>(f.iso2||'')+':'+(f.__selected?1:0)+':'+(f.__esim?1:0)+':'+(f.__tibetOverlay?1:0)).join('|');
     if(state._polySig===sig && (state.globe.polygonsData?.()||[]).length===list.length){
       applyBluePolygonStyle();
       return;
@@ -487,8 +498,12 @@ function selectedBoundaryLayers(geometry,c,key){
 function makeBorderPaths(countries,eps=0.04){
   // Clean world borders: main landmass + few major islands, antimeridian-split paths
   const out=[];
+  const tibet=countries.find(isTibetOverlayFeature);
   for(const c of countries){
-    out.push(...geometryBorderPaths(c.geometry,c,c.__key,'base',eps,{maxPts:160,maxRings:3,minRelArea:0.06}));
+    for(const path of geometryBorderPaths(c.geometry,c,c.__key,'base',eps,{maxPts:160,maxRings:3,minRelArea:0.06})){
+      if(pathOverlapsTibetOverlay(path,tibet)) continue;
+      out.push(path);
+    }
   }
   return out;
 }

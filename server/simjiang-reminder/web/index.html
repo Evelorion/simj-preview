@@ -330,13 +330,17 @@
       const overlay = d && d.properties && d.properties.SIMJ_OVERLAY;
       return overlay === 'CN_TIBET' || overlay === 'CN_ZANGNAN';
     }
+    function isChinaMainland(d) {
+      return featIso(d) === 'CN' && !isTibetOverlay(d);
+    }
 
     function refreshPolygonStyles() {
       if (!world) return;
       world
         .polygonAltitude(d => {
           if (d === selectedD) return 0.012;
-          if (isTibetOverlay(d)) return isEsim(d) ? 0.009 : 0.007;
+          if (isTibetOverlay(d)) return 0.018;
+          if (isChinaMainland(d)) return Math.max(isEsim(d) ? 0.009 : 0.006, isAppCountry(d) ? 0.007 : 0.006);
           if (isEsim(d)) return 0.008;
           if (isAppCountry(d)) return 0.006;
           const iso = featIso(d);
@@ -344,24 +348,26 @@
           return 0.002;
         })
         .polygonCapColor(d => {
+          if (isTibetOverlay(d)) return 'rgba(96, 165, 250, 0.96)';
           if (d === selectedD) return 'rgba(14, 165, 233, 0.62)';
           if (d === hoverD) return 'rgba(255, 255, 255, 0.22)';
           // eSIM 国家：亮蓝
           if (isEsim(d)) return 'rgba(56, 189, 248, 0.58)';
           // App 有号码的国家：次亮蓝
           if (isAppCountry(d)) return 'rgba(96, 165, 250, 0.42)';
-          if (isTibetOverlay(d)) return 'rgba(96, 165, 250, 0.28)';
+          if (isChinaMainland(d)) return 'rgba(96, 165, 250, 0.42)';
           return 'rgba(255, 255, 255, 0.01)';
         })
         .polygonSideColor(d => {
+          if (isTibetOverlay(d)) return 'rgba(0, 0, 0, 0)';
           if (d === selectedD || isEsim(d) || isAppCountry(d) || isTibetOverlay(d)) return 'rgba(2, 132, 199, 0.22)';
           return 'rgba(0, 0, 0, 0)';
         })
         .polygonStrokeColor(d => {
+          if (isTibetOverlay(d)) return 'rgba(147, 197, 253, 0)';
           if (d === selectedD) return 'rgba(186, 230, 253, 1)';
           if (isEsim(d)) return 'rgba(125, 211, 252, 1)';
           if (isAppCountry(d)) return 'rgba(147, 197, 253, 0.95)';
-          if (isTibetOverlay(d)) return 'rgba(147, 197, 253, 0.95)';
           return 'rgba(255, 255, 255, 0.55)';
         });
     }
@@ -776,6 +782,6 @@
   </script>
 
   <!-- App 登录 + eSIM 覆盖 + 与后台同一账号体系 -->
-  <script src="/simj-portal.js?v=plain-sync-map-tibet-20260726"></script>
+  <script src="/simj-portal.js?v=plain-sync-map-tibet-merge-20260726"></script>
 </body>
 </html>

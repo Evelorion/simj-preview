@@ -39,7 +39,7 @@ conn
         console.log("uploaded", rel, fs.statSync(lp).size);
       }
       conn.exec(
-        "rm -f /opt/simjiang-reminder/web/assets/flags/TW.png; systemctl restart simjiang-reminder; sleep 1; curl -sS http://127.0.0.1:8787/ | tr '\\n' ' ' | grep -oE 'plain-sync-map-tibet-20260726|globe-app' | sort -u; curl -sS -o /dev/null -w 'app:%{size_download}\\n' http://127.0.0.1:8787/app/globe-app.js?v=plain-sync-map-tibet-20260726; echo DONE",
+        "rm -f /opt/simjiang-reminder/web/assets/flags/TW.png; systemctl restart simjiang-reminder; sleep 1; curl -sS http://127.0.0.1:8787/ | tr '\\n' ' ' | grep -oE 'plain-sync-map-tibet-merge-20260726|globe-app' | sort -u; curl -sS -o /dev/null -w 'app:%{size_download}\\n' http://127.0.0.1:8787/app/globe-app.js?v=plain-sync-map-tibet-merge-20260726; echo DONE",
         (e, stream) => {
           let o = "";
           stream.on("data", (d) => (o += d));
