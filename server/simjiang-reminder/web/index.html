@@ -259,7 +259,7 @@
         </div>
       </div>
       <div class="panel-footer">
-        地图边界：Natural Earth 110m 本地/镜像数据；3D 引擎：globe.gl；卫星瓦片：Esri ArcGIS；标准地图：OpenStreetMap。privateKey 只用于找回密码，与地图显示或号码同步无关。地图仅用于业务可视化，不作为法定或测绘依据。
+        边界为可视化简化数据，不作为法定或测绘依据。号码位数为常见手机号码长度参考。
       </div>
     </div>
   </div>
@@ -326,9 +326,8 @@
     function isEsim(d) {
       return esimIsoSet.has(featIso(d));
     }
-    function isTibetOverlay(d) {
-      const overlay = d && d.properties && d.properties.SIMJ_OVERLAY;
-      return overlay === 'CN_TIBET' || overlay === 'CN_ZANGNAN';
+    function isSouthTibetOverlay(d) {
+      return !!(d && d.properties && d.properties.SIMJ_OVERLAY === 'CN_ZANGNAN');
     }
 
     function refreshPolygonStyles() {
@@ -336,7 +335,7 @@
       world
         .polygonAltitude(d => {
           if (d === selectedD) return 0.012;
-          if (isTibetOverlay(d)) return isEsim(d) ? 0.009 : 0.007;
+          if (isSouthTibetOverlay(d)) return isEsim(d) ? 0.009 : 0.007;
           if (isEsim(d)) return 0.008;
           if (isAppCountry(d)) return 0.006;
           const iso = featIso(d);
@@ -350,18 +349,18 @@
           if (isEsim(d)) return 'rgba(56, 189, 248, 0.58)';
           // App 有号码的国家：次亮蓝
           if (isAppCountry(d)) return 'rgba(96, 165, 250, 0.42)';
-          if (isTibetOverlay(d)) return 'rgba(96, 165, 250, 0.28)';
+          if (isSouthTibetOverlay(d)) return 'rgba(96, 165, 250, 0.28)';
           return 'rgba(255, 255, 255, 0.01)';
         })
         .polygonSideColor(d => {
-          if (d === selectedD || isEsim(d) || isAppCountry(d) || isTibetOverlay(d)) return 'rgba(2, 132, 199, 0.22)';
+          if (d === selectedD || isEsim(d) || isAppCountry(d) || isSouthTibetOverlay(d)) return 'rgba(2, 132, 199, 0.22)';
           return 'rgba(0, 0, 0, 0)';
         })
         .polygonStrokeColor(d => {
           if (d === selectedD) return 'rgba(186, 230, 253, 1)';
           if (isEsim(d)) return 'rgba(125, 211, 252, 1)';
           if (isAppCountry(d)) return 'rgba(147, 197, 253, 0.95)';
-          if (isTibetOverlay(d)) return 'rgba(147, 197, 253, 0.95)';
+          if (isSouthTibetOverlay(d)) return 'rgba(147, 197, 253, 0.95)';
           return 'rgba(255, 255, 255, 0.55)';
         });
     }
@@ -493,8 +492,8 @@
       if (iso2 === 'TW' || /taiwan/i.test(nameEn)) {
         nameZh = '中国台湾省';
         nameEn = 'Taiwan Province of China';
-        flagThumb = '';
-        flagBg = '';
+        flagThumb = localFlag || `https://flagcdn.com/w160/tw.png`;
+        flagBg = flagThumb;
       } else if (iso2 === 'HK') {
         nameZh = '中国香港特别行政区';
         nameEn = 'Hong Kong SAR, China';
@@ -518,13 +517,7 @@
         }
       };
       delete flagImgEl.dataset.cdn;
-      if (flagThumb) {
-        flagImgEl.style.visibility = 'visible';
-        flagImgEl.src = flagThumb;
-      } else {
-        flagImgEl.removeAttribute('src');
-        flagImgEl.style.visibility = 'hidden';
-      }
+      flagImgEl.src = flagThumb;
       document.getElementById('countryNameZh').innerText = nameZh;
       document.getElementById('countryNameEn').innerText = nameEn;
       document.getElementById('cardIsoCode').innerText = iso3;
@@ -577,33 +570,29 @@
     const DATA_URL = 'https://cdn.jsdelivr.net/gh/vasturiano/globe.gl@master/example/datasets/ne_110m_admin_0_countries.geojson';
     // Prefer VPS local copy if present
     const LOCAL_DATA = '/data/countries.geojson';
-    const TIBET_CN_OVERLAY = {
+    const SOUTH_TIBET_CN_OVERLAY = {
       type: 'Feature',
       properties: {
         ISO_A2: 'CN',
         ISO_A3: 'CHN',
         NAME: 'China',
         ADMIN: 'China',
-        SIMJ_OVERLAY: 'CN_TIBET'
+        SIMJ_OVERLAY: 'CN_ZANGNAN'
       },
       geometry: {
         type: 'Polygon',
         coordinates: [[
-          [78.30,35.70], [79.60,34.80], [81.20,35.20], [82.90,34.50],
-          [84.90,34.60], [86.80,33.70], [88.80,33.30], [90.60,33.00],
-          [92.50,32.30], [94.40,31.60], [96.10,30.40], [97.60,29.40],
-          [98.10,28.20], [97.25,27.75], [96.35,27.25], [95.35,27.02],
-          [94.25,26.60], [93.15,26.15], [92.25,26.42], [91.55,27.10],
-          [90.60,27.75], [89.10,27.35], [87.60,27.80], [86.20,28.35],
-          [84.80,28.65], [83.20,29.05], [81.60,29.50], [80.30,30.10],
-          [79.20,31.20], [78.50,32.60], [78.00,34.00], [78.30,35.70]
+          [91.55, 27.95], [92.20, 28.35], [93.55, 28.48], [94.35, 29.10],
+          [95.40, 29.25], [96.35, 29.05], [97.35, 28.45], [97.25, 27.75],
+          [96.35, 27.25], [95.35, 27.02], [94.25, 26.60], [93.15, 26.15],
+          [92.25, 26.42], [91.55, 27.10], [91.55, 27.95]
         ]]
       }
     };
 
-    function injectTibetOverlay(features) {
-      if (features.some(f => f && f.properties && f.properties.SIMJ_OVERLAY === 'CN_TIBET')) return features;
-      features.push(JSON.parse(JSON.stringify(TIBET_CN_OVERLAY)));
+    function injectSouthTibetOverlay(features) {
+      if (features.some(f => f && f.properties && f.properties.SIMJ_OVERLAY === 'CN_ZANGNAN')) return features;
+      features.push(JSON.parse(JSON.stringify(SOUTH_TIBET_CN_OVERLAY)));
       return features;
     }
 
@@ -636,7 +625,7 @@
       // avoid double HK/MO if local data already has them
       const hasHk = countries.features.some(f => featIso(f) === 'HK');
       if (!hasHk) injectHkMo(countries.features);
-      injectTibetOverlay(countries.features);
+      injectSouthTibetOverlay(countries.features);
 
       countryFeatures = enrichFeatures(countries.features);
 
@@ -776,6 +765,6 @@
   </script>
 
   <!-- App 登录 + eSIM 覆盖 + 与后台同一账号体系 -->
-  <script src="/simj-portal.js?v=plain-sync-map-tibet-20260726"></script>
+  <script src="/simj-portal.js?v=plain-sync-edit-number-20260725"></script>
 </body>
 </html>

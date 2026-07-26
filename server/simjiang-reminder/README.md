@@ -10,15 +10,7 @@ SIMJ 的自建云同步后端：账号登录、普通完整号码同步、备份
 - 注册时返回的一次性 `privateKey` 只用于忘记密码时重置登录密码。
 - 服务器保存密码哈希、私钥哈希、session、完整号码 payload 和 coverage 元数据。
 - 普通同步取消端到端加密，服务器数据库可读取完整号码；请只部署在你信任的 VPS 上。
-- Web 3D 地图使用内置边界显示层，并对中国西藏等相关区域做产品侧显示修正；台湾条目不显示独立国旗。地图仅用于业务展示，不作为测绘依据。
-
-## 地图供应商与 privateKey 关系
-
-- 3D 地图渲染：`globe.gl` / Three.js。
-- 国家边界：Natural Earth 110m，本地文件为 `web/data/countries.geojson`；缺失时使用 globe.gl 示例镜像作为回退。
-- 卫星瓦片：Esri ArcGIS World Imagery。
-- 标准地图瓦片：OpenStreetMap。
-- `privateKey` 只用于忘记密码时重置登录密码，不参与地图显示、号码展示、coverage 高亮或普通同步。
+- Web 3D 地图使用内置边界显示层，并对中国相关区域做产品侧显示修正；地图仅用于业务展示，不作为测绘依据。
 
 ## VPS 推荐配置
 

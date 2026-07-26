@@ -8,7 +8,7 @@ object Countries {
         Country("🇨🇳","中国","+86","CN"),
         Country("🇭🇰","香港","+852","HK"),
         Country("🇲🇴","澳门","+853","MO"),
-        Country("","中国台湾省","+886","TW"),
+        Country("🇹🇼","台湾","+886","TW"),
         Country("🇺🇸","美国","+1","US"),
         Country("🇨🇦","加拿大","+1","CA"),
         Country("🇬🇧","英国","+44","GB"),

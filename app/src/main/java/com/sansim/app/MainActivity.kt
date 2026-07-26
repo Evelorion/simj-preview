@@ -253,15 +253,14 @@ object DataStore {
     fun loadRecords(ctx:Context):List<PhoneNumberRecord>{
         val arr=JSONArray(ctx.getSharedPreferences(PREF,0).getString("records","[]"))
         return (0 until arr.length()).mapIndexed{ idx,it-> val o=arr.getJSONObject(it)
-            val record=PhoneNumberRecord(
+            normalizeLongTerm(PhoneNumberRecord(
                 id=o.optString("id",UUID.randomUUID().toString()), countryCode=o.optString("countryCode","+86"), countryName=o.optString("countryName","中国"), flag=o.optString("flag","🇨🇳"), number=o.optString("number"), operator=o.optString("operator"), expireDate=o.optString("expireDate",LocalDate.now().plusDays(30).toString()), note=o.optString("note"),
                 balance=o.optString("balance"), eid=o.optString("eid"), smdp=o.optString("smdp"), activationCode=o.optString("activationCode"), startDate=o.optString("startDate",LocalDate.now().toString()), createdAt=o.optString("createdAt",LocalDate.now().toString()), activatedAt=o.optString("activatedAt"), longTerm=o.optBoolean("longTerm",false), cycleDays=o.optInt("cycleDays",30), signalStatus=o.optString("signalStatus","在线"), tags=o.optString("tags",""), transactionNotes=o.optString("transactionNotes",""), customPrompt=o.optString("customPrompt",""), websiteURL=o.optString("websiteURL",""), cyclePaymentMinorUnits=o.optInt("cyclePaymentMinorUnits",0), currencyCode=o.optString("currencyCode",""), cardBackgroundAssetName=o.optString("cardBackgroundAssetName",""), cardColorHex=o.optString("cardColorHex",""), cardType=o.optString("cardType","prepaid"), sortOrder=o.optInt("sortOrder",(idx+1)*10)
-            )
-            normalizeLongTerm(record.copy(flag=displayFlagFor(record.countryCode,record.countryName,record.flag)))
+            ))
         }
     }
     fun recordJson(r:PhoneNumberRecord)=JSONObject()
-        .put("id",r.id).put("countryCode",r.countryCode).put("countryName",r.countryName).put("flag",displayFlagFor(r.countryCode,r.countryName,r.flag))
+        .put("id",r.id).put("countryCode",r.countryCode).put("countryName",r.countryName).put("flag",r.flag)
         .put("number",r.number).put("operator",r.operator).put("expireDate",r.expireDate).put("note",r.note)
         .put("balance",r.balance).put("eid",r.eid).put("smdp",r.smdp).put("activationCode",r.activationCode)
         .put("startDate",r.startDate).put("createdAt",r.createdAt).put("activatedAt",r.activatedAt)
@@ -425,7 +424,7 @@ class MainActivity: ComponentActivity(){ private val req=registerForActivityResu
                 Full编辑Screen(init=edit!!, onDismiss={edit=null}, onSave={r->
                     val resolvedIso=countryIsoFor(r.countryCode,r.countryName.ifBlank{r.flag})
                     val c=Countries.list.firstOrNull{it.iso==resolvedIso} ?: Countries.list.firstOrNull{it.code==r.countryCode && it.name==r.countryName} ?: Countries.list.firstOrNull{it.code==r.countryCode} ?: Countries.list.first()
-                    val nr0=r.copy(countryCode=c.code,countryName=c.name,flag=displayFlagFor(c),operator= if(r.operator.isBlank()) guessOperator(r.number,c.iso) else r.operator, createdAt=if(r.createdAt.isBlank()) LocalDate.now().toString() else r.createdAt, activatedAt=if(r.activatedAt.isBlank() && (r.smdp.isNotBlank() || r.activationCode.isNotBlank())) LocalDate.now().toString() else r.activatedAt)
+                    val nr0=r.copy(countryCode=c.code,countryName=c.name,flag=c.flag,operator= if(r.operator.isBlank()) guessOperator(r.number,c.iso) else r.operator, createdAt=if(r.createdAt.isBlank()) LocalDate.now().toString() else r.createdAt, activatedAt=if(r.activatedAt.isBlank() && (r.smdp.isNotBlank() || r.activationCode.isNotBlank())) LocalDate.now().toString() else r.activatedAt)
                     val nr=if(records.any{it.id==nr0.id}) nr0 else nr0.copy(sortOrder=((records.maxOfOrNull{it.sortOrder}?:0)+10).coerceAtLeast((records.size+1)*10))
                     records= if(records.any{it.id==nr.id}) records.map{if(it.id==nr.id)nr else it} else records+nr
                     DataStore.saveRecords(ctx,records); autoCloudSync(records,settings)
@@ -1079,13 +1078,6 @@ fun countryIsoFor(code:String,name:String):String {
         ?: Countries.list.firstOrNull { it.code == code }?.iso
         ?: ""
 }
-
-fun displayFlagFor(code:String,name:String,flag:String):String {
-    val iso=countryIsoFor(code,name).ifBlank { countryIsoFor(code,flag) }
-    return if(iso.equals("TW",true) || flag == "🇹🇼") "" else flag
-}
-fun displayFlagFor(r:PhoneNumberRecord):String = displayFlagFor(r.countryCode,r.countryName,r.flag)
-fun displayFlagFor(c:Country):String = if(c.iso.equals("TW",true)) "" else c.flag
 
 fun countryTheme(code:String,name:String):List<Color> =
     flagColorsForIso(countryIsoFor(code,name))
@@ -2584,7 +2576,7 @@ object OperatorLogoAssets {
     Card(shape=RoundedCornerShape(20.dp),colors=CardDefaults.cardColors(containerColor=Color(0xF7FFFFFF)),elevation=CardDefaults.cardElevation(defaultElevation=6.dp),modifier=Modifier.fillMaxWidth().padding(horizontal=4.dp,vertical=2.dp).border(1.dp,Color.White.copy(alpha=.75f),RoundedCornerShape(24.dp))){
         Column(Modifier.padding(horizontal=16.dp,vertical=14.dp),verticalArrangement=Arrangement.spacedBy(7.dp)){
             Row(verticalAlignment=Alignment.CenterVertically){
-                Box(Modifier.size(46.dp).clip(RoundedCornerShape(15.dp)).background(Color.White),contentAlignment=Alignment.Center){Text(displayFlagFor(r),fontSize=27.sp)}
+                Box(Modifier.size(46.dp).clip(RoundedCornerShape(15.dp)).background(Color.White),contentAlignment=Alignment.Center){Text(r.flag,fontSize=27.sp)}
                 Spacer(Modifier.width(10.dp))
                 Column(Modifier.weight(1f),verticalArrangement=Arrangement.spacedBy(3.dp)){
                     Text(L("默认保号号码"),fontSize=11.sp,color=Color(0xFF007AFF),fontWeight=FontWeight.Bold)
@@ -2645,7 +2637,7 @@ object OperatorLogoAssets {
     Card(shape=RoundedCornerShape(20.dp),colors=CardDefaults.cardColors(containerColor=Color.White),elevation=CardDefaults.cardElevation(5.dp),modifier=Modifier.fillMaxWidth()){
         Column(Modifier.padding(horizontal=14.dp,vertical=12.dp),verticalArrangement=Arrangement.spacedBy(8.dp)){
             Row(verticalAlignment=Alignment.CenterVertically,modifier=Modifier.motionClickable(pressedScale=.985f){on编辑(r)}){
-                Box(Modifier.size(42.dp).clip(RoundedCornerShape(14.dp)).background(Color(0xFFF1F5FA)),contentAlignment=Alignment.Center){Text(displayFlagFor(r),fontSize=25.sp)}
+                Box(Modifier.size(42.dp).clip(RoundedCornerShape(14.dp)).background(Color(0xFFF1F5FA)),contentAlignment=Alignment.Center){Text(r.flag,fontSize=25.sp)}
                 Spacer(Modifier.width(10.dp))
                 Column(Modifier.weight(1f),verticalArrangement=Arrangement.spacedBy(2.dp)){
                     Text(r.operator.ifBlank{r.countryName},fontSize=16.sp,fontWeight=FontWeight.Bold,maxLines=1,overflow=TextOverflow.Ellipsis)
@@ -2820,7 +2812,7 @@ object OperatorLogoAssets {
                 else LazyColumn(Modifier.heightIn(max=420.dp),verticalArrangement=Arrangement.spacedBy(8.dp)){
                     items(records){ r ->
                         Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(dk(Color(0xFF1C1C1E),Color.White)).motionClickable(pressedScale=.985f){onPick(r)}.padding(13.dp),verticalAlignment=Alignment.CenterVertically){
-                            Text(displayFlagFor(r),fontSize=25.sp); Spacer(Modifier.width(10.dp)); Column(Modifier.weight(1f)){Text(r.operator.ifBlank{r.countryName},fontWeight=FontWeight.SemiBold,color=dk(Color(0xFFE5E5E7),Color(0xFF111827))); Text("${r.countryCode} ${maskNumber(formatNumber(r.number))}",fontSize=12.sp,color=Color(0xFF6B7280))}; Text("›",fontSize=24.sp,color=dk(Color(0xFF48484A),Color(0xFFC7C7CC)))
+                            Text(r.flag,fontSize=25.sp); Spacer(Modifier.width(10.dp)); Column(Modifier.weight(1f)){Text(r.operator.ifBlank{r.countryName},fontWeight=FontWeight.SemiBold,color=dk(Color(0xFFE5E5E7),Color(0xFF111827))); Text("${r.countryCode} ${maskNumber(formatNumber(r.number))}",fontSize=12.sp,color=Color(0xFF6B7280))}; Text("›",fontSize=24.sp,color=dk(Color(0xFF48484A),Color(0xFFC7C7CC)))
                         }
                     }
                 }
@@ -2874,7 +2866,7 @@ object OperatorLogoAssets {
     Card(shape=RoundedCornerShape(20.dp),colors=CardDefaults.cardColors(containerColor=dk(Color(0xF81C1C1E),Color(0xF8FFFFFF))),elevation=CardDefaults.cardElevation(defaultElevation=6.dp),modifier=Modifier.fillMaxWidth().padding(vertical=2.dp).border(1.dp,dk(Color(0xFF2C2C2E).copy(alpha=.70f),Color.White.copy(alpha=.70f)),RoundedCornerShape(24.dp))){
         Column(Modifier.padding(16.dp),verticalArrangement=Arrangement.spacedBy(9.dp)){
             Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.Top){
-                Box(Modifier.size(48.dp).clip(RoundedCornerShape(16.dp)).background(dk(Color(0xFF2C2C2E),Color(0xFFF1F5FA))),contentAlignment=Alignment.Center){Text(displayFlagFor(r),fontSize=25.sp)}
+                Box(Modifier.size(48.dp).clip(RoundedCornerShape(16.dp)).background(dk(Color(0xFF2C2C2E),Color(0xFFF1F5FA))),contentAlignment=Alignment.Center){Text(r.flag,fontSize=25.sp)}
                 Spacer(Modifier.width(10.dp))
                 Column(Modifier.weight(1f),verticalArrangement=Arrangement.spacedBy(3.dp)){
                     Row(verticalAlignment=Alignment.CenterVertically){
@@ -3192,7 +3184,7 @@ fun cardBackgroundPath(r:PhoneNumberRecord, iso:String, bankCardStyle:Boolean=fa
                 // ── 国家/地区 ──
                 item{
                     SettingsSection(L("国家/地区")){
-                        IOSValueRow(L("国家/地区"),listOf(displayFlagFor(r),r.countryName,r.countryCode).filter{it.isNotBlank()}.joinToString(" ")){ countryDlg=true }
+                        IOSValueRow(L("国家/地区"),"${r.flag} ${r.countryName} ${r.countryCode}"){ countryDlg=true }
                         Text(L("支持搜索名称、代码或区号"),fontSize=11.sp,color=Color(0xFF8A94A6))
                     }
                 }
@@ -3324,7 +3316,7 @@ fun cardBackgroundPath(r:PhoneNumberRecord, iso:String, bankCardStyle:Boolean=fa
         }
         qrDlg=false
     }
-    if(countryDlg) CountryDialog({countryDlg=false}){c->r=r.copy(countryCode=c.code,countryName=c.name,flag=displayFlagFor(c));countryDlg=false}
+    if(countryDlg) CountryDialog({countryDlg=false}){c->r=r.copy(countryCode=c.code,countryName=c.name,flag=c.flag);countryDlg=false}
 }
 @Composable fun IOSDividerLine(){ Box(Modifier.fillMaxWidth().height(.7.dp).background(dk(Color(0xFF2C2C2E),Color(0xFFE5E7EB)))) }
 
@@ -3502,7 +3494,7 @@ fun cardBackgroundPath(r:PhoneNumberRecord, iso:String, bankCardStyle:Boolean=fa
                 TextField(value=q,onValueChange={q=it},modifier=Modifier.fillMaxWidth().heightIn(min=36.dp).clip(RoundedCornerShape(12.dp)),singleLine=true,placeholder={Text(L("搜索国家 / 区号 / ISO"))},leadingIcon={Canvas(Modifier.size(16.dp)){drawCircle(Color(0xFF8E8E93),radius=size.width/2-1.dp.toPx(),style=Stroke(1.5.dp.toPx()));drawLine(Color(0xFF8E8E93),Offset(size.width*.65f,size.height*.65f),Offset(size.width*.85f,size.height*.85f),strokeWidth=1.5.dp.toPx())}},colors=TextFieldDefaults.colors(focusedContainerColor=dk(Color(0xFF2C2C2E),Color.White),unfocusedContainerColor=dk(Color(0xFF2C2C2E),Color.White),focusedIndicatorColor=Color.Transparent,unfocusedIndicatorColor=Color.Transparent))
                 LazyColumn(Modifier.heightIn(max=460.dp),verticalArrangement=Arrangement.spacedBy(7.dp)){
                     items(Countries.list.filter{it.name.contains(q,true)||it.code.contains(q)||it.iso.contains(q,true)}){ c->
-                        Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(15.dp)).background(dk(Color(0xFF1C1C1E),Color.White)).motionClickable(pressedScale=.985f){onPick(c)}.padding(horizontal=13.dp,vertical=12.dp),verticalAlignment=Alignment.CenterVertically){Text(displayFlagFor(c),fontSize=24.sp);Spacer(Modifier.width(10.dp));Text(c.name,fontSize=16.sp,fontWeight=FontWeight.SemiBold,modifier=Modifier.weight(1f));Text("${c.code}  ${c.iso}",fontSize=13.sp,color=Color(0xFF8A94A6));Spacer(Modifier.width(4.dp));Text("›",fontSize=22.sp,color=Color(0xFFC7C7CC))}
+                        Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(15.dp)).background(dk(Color(0xFF1C1C1E),Color.White)).motionClickable(pressedScale=.985f){onPick(c)}.padding(horizontal=13.dp,vertical=12.dp),verticalAlignment=Alignment.CenterVertically){Text(c.flag,fontSize=24.sp);Spacer(Modifier.width(10.dp));Text(c.name,fontSize=16.sp,fontWeight=FontWeight.SemiBold,modifier=Modifier.weight(1f));Text("${c.code}  ${c.iso}",fontSize=13.sp,color=Color(0xFF8A94A6));Spacer(Modifier.width(4.dp));Text("›",fontSize=22.sp,color=Color(0xFFC7C7CC))}
                     }
                 }
             }
@@ -3516,7 +3508,7 @@ fun cardBackgroundPath(r:PhoneNumberRecord, iso:String, bankCardStyle:Boolean=fa
         item{
             IOSSection(L("全部国家 / 地区")){
                 Countries.list.forEach{ c->
-                    Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).padding(horizontal=4.dp,vertical=8.dp),verticalAlignment=Alignment.CenterVertically){Text(displayFlagFor(c),fontSize=24.sp);Spacer(Modifier.width(10.dp));Text(c.name,fontSize=16.sp,fontWeight=FontWeight.SemiBold,modifier=Modifier.weight(1f));Text("${c.code}  ${c.iso}",fontSize=13.sp,color=Color(0xFF8A94A6))}
+                    Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).padding(horizontal=4.dp,vertical=8.dp),verticalAlignment=Alignment.CenterVertically){Text(c.flag,fontSize=24.sp);Spacer(Modifier.width(10.dp));Text(c.name,fontSize=16.sp,fontWeight=FontWeight.SemiBold,modifier=Modifier.weight(1f));Text("${c.code}  ${c.iso}",fontSize=13.sp,color=Color(0xFF8A94A6))}
                 }
             }
         }
@@ -3527,7 +3519,7 @@ fun cardBackgroundPath(r:PhoneNumberRecord, iso:String, bankCardStyle:Boolean=fa
 @OptIn(ExperimentalLayoutApi::class)
 
 fun recordToJson(r:PhoneNumberRecord)=JSONObject()
-    .put("id",r.id).put("countryCode",r.countryCode).put("countryName",r.countryName).put("flag",displayFlagFor(r.countryCode,r.countryName,r.flag))
+    .put("id",r.id).put("countryCode",r.countryCode).put("countryName",r.countryName).put("flag",r.flag)
     .put("number",r.number).put("operator",r.operator).put("expireDate",r.expireDate).put("note",r.note)
     .put("balance",r.balance).put("eid",r.eid).put("smdp",r.smdp).put("activationCode",r.activationCode)
     .put("startDate",r.startDate).put("createdAt",r.createdAt).put("activatedAt",r.activatedAt)
@@ -3753,7 +3745,7 @@ fun cloudCoverage(records:List<PhoneNumberRecord>):JSONObject{
                     .put("esim",isEsim)
                     .put("code",r.countryCode)
                     .put("name",r.countryName)
-                    .put("flag",displayFlagFor(r.countryCode,r.countryName,r.flag))
+                    .put("flag",r.flag)
                     .put("expire",r.expireDate)
                     .put("balance",r.balance)
                     .put("cardType",r.cardType)
@@ -5125,7 +5117,7 @@ fun App设置.copy()=App设置(dark,remind天,trafficUrl,trafficKb,tgEnabled,bot
                     TextButton(onDismiss){Text(L("关闭"),color=scheme.primary)}
                 }
                 IOSSection(L("号码")){
-                    Row(verticalAlignment=Alignment.CenterVertically){Text(displayFlagFor(r),fontSize=24.sp);Spacer(Modifier.width(8.dp));Column{Text(r.operator.ifBlank{r.countryName},fontWeight=FontWeight.SemiBold,color=scheme.onSurface);Text("${r.countryCode} ${formatNumber(r.number)}",fontSize=13.sp,color=scheme.onSurfaceVariant)}}
+                    Row(verticalAlignment=Alignment.CenterVertically){Text(r.flag,fontSize=24.sp);Spacer(Modifier.width(8.dp));Column{Text(r.operator.ifBlank{r.countryName},fontWeight=FontWeight.SemiBold,color=scheme.onSurface);Text("${r.countryCode} ${formatNumber(r.number)}",fontSize=13.sp,color=scheme.onSurfaceVariant)}}
                 }
                 IOSSection(L("下载测试接口")){
                     PlainInput(label="URL",value=url,onValue={url=it})
@@ -5203,13 +5195,10 @@ fun splitCsvLine(line:String):List<String>{
     out.add(sb.toString()); return out
 }
 
-fun parseRecordObject(o:JSONObject):PhoneNumberRecord{
-    val record=PhoneNumberRecord(
-        id=o.optString("id",UUID.randomUUID().toString()), countryCode=o.optString("countryCode","+86"), countryName=o.optString("countryName","中国"), flag=o.optString("flag","🇨🇳"), number=o.optString("number",o.optString("phoneNumber",o.optString("msisdn",o.optString("fullNumber","")))), operator=o.optString("operator"), expireDate=o.optString("expireDate",LocalDate.now().plusDays(30).toString()), note=o.optString("note"),
-        balance=o.optString("balance"), eid=o.optString("eid"), smdp=o.optString("smdp"), activationCode=o.optString("activationCode"), startDate=o.optString("startDate",LocalDate.now().toString()), createdAt=o.optString("createdAt",LocalDate.now().toString()), activatedAt=o.optString("activatedAt"), longTerm=o.optBoolean("longTerm",false), cycleDays=o.optInt("cycleDays",30), signalStatus=o.optString("signalStatus","在线"), tags=o.optString("tags",""), transactionNotes=o.optString("transactionNotes",""), customPrompt=o.optString("customPrompt",""), websiteURL=o.optString("websiteURL",""), cyclePaymentMinorUnits=o.optInt("cyclePaymentMinorUnits",0), currencyCode=o.optString("currencyCode",""), cardBackgroundAssetName=o.optString("cardBackgroundAssetName",""), cardColorHex=o.optString("cardColorHex",""), cardType=o.optString("cardType","prepaid"), sortOrder=o.optInt("sortOrder",0)
-    )
-    return record.copy(flag=displayFlagFor(record.countryCode,record.countryName,record.flag))
-}
+fun parseRecordObject(o:JSONObject)=PhoneNumberRecord(
+    id=o.optString("id",UUID.randomUUID().toString()), countryCode=o.optString("countryCode","+86"), countryName=o.optString("countryName","中国"), flag=o.optString("flag","🇨🇳"), number=o.optString("number",o.optString("phoneNumber",o.optString("msisdn",o.optString("fullNumber","")))), operator=o.optString("operator"), expireDate=o.optString("expireDate",LocalDate.now().plusDays(30).toString()), note=o.optString("note"),
+    balance=o.optString("balance"), eid=o.optString("eid"), smdp=o.optString("smdp"), activationCode=o.optString("activationCode"), startDate=o.optString("startDate",LocalDate.now().toString()), createdAt=o.optString("createdAt",LocalDate.now().toString()), activatedAt=o.optString("activatedAt"), longTerm=o.optBoolean("longTerm",false), cycleDays=o.optInt("cycleDays",30), signalStatus=o.optString("signalStatus","在线"), tags=o.optString("tags",""), transactionNotes=o.optString("transactionNotes",""), customPrompt=o.optString("customPrompt",""), websiteURL=o.optString("websiteURL",""), cyclePaymentMinorUnits=o.optInt("cyclePaymentMinorUnits",0), currencyCode=o.optString("currencyCode",""), cardBackgroundAssetName=o.optString("cardBackgroundAssetName",""), cardColorHex=o.optString("cardColorHex",""), cardType=o.optString("cardType","prepaid"), sortOrder=o.optInt("sortOrder",0)
+)
 fun hasRecordPayload(o:JSONObject):Boolean = listOf("id","number","phoneNumber","operator","carrier","countryCode","countryName","flag","eid","smdp","smdpAddress","activationCode","expireDate","expiryDate","note","balance","cardType","cardBackgroundAssetName").any{ o.optString(it).isNotBlank() }
 fun parseRecordArray(arr:JSONArray):List<PhoneNumberRecord> = (0 until arr.length()).mapNotNull{ idx->
     val o=arr.optJSONObject(idx) ?: return@mapNotNull null

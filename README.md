@@ -39,8 +39,6 @@ DsimJ — SIM 卡 & eSIM 号码管家。
 
 云端服务目录：`server/simjiang-reminder/`。
 
-地图说明：Web 3D 地图使用 `globe.gl` 渲染，国家边界来自 Natural Earth 110m（本地 `/web/data/countries.geojson`，缺失时使用 globe.gl 示例镜像），卫星瓦片来自 Esri ArcGIS World Imagery，标准地图瓦片来自 OpenStreetMap。地图显示、边界显示修正和 `privateKey` 没有关系；`privateKey` 仅用于忘记密码时重置登录密码。
-
 ## ⚠️ 升级提醒 (v3.0.24-pre)
 
 > **更新前请先保存好 Key 和导出备份！**
@@ -52,7 +50,7 @@ DsimJ — SIM 卡 & eSIM 号码管家。
 - 📱 **号码保号管理** — 130+ 国家号码录入，智能到期提醒，批量管理
 - 🌐 **eSIM 管理** — 内置 eSIM (OMAPI) + USB 实体卡双通道，扫码/相册/手动下载 Profile
 - ☁️ **自建云同步** — 账号登录后普通同步完整号码，Web 同账号可直接查看号码卡片
-- 🌍 **Web 3D 地图** — 高亮有号码的国家/地区，内置中国西藏等相关区域显示修正，台湾条目不显示独立国旗
+- 🌍 **Web 3D 地图** — 高亮有号码的国家/地区，内置中国相关区域显示修正
 - 🔔 **提醒通道** — Telegram Bot / SMTP 邮件 / 云端 API 同步 + 自建服务地址自定义
 - 🛠️ **实用工具** — 刷流量测试、拨号测试、JSON/CSV 导入导出
 - 🌙 **深色模式** — 全局适配
