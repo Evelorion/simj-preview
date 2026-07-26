@@ -469,7 +469,7 @@ eSIM 判定（coverage）：`cardType/note/tags` 含 esim，或 eid/smdp/activat
 
 地图边界说明：
 
-- `web/index.html` 和 `web/app/globe-app.js` 会注入 `CN_ZANGNAN` 覆盖层，保证藏南区域在产品地图上按中国显示。
+- Web 地图边界来自当前地图数据源，应用侧不注入行政边界覆盖层。
 - 地图数据仅用于业务可视化，不作为法定或测绘依据。
 
 ### 7.3 管理后台
