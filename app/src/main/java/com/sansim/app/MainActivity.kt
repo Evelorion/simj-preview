@@ -1086,6 +1086,7 @@ fun displayFlagFor(code:String,name:String,flag:String):String {
 }
 fun displayFlagFor(r:PhoneNumberRecord):String = displayFlagFor(r.countryCode,r.countryName,r.flag)
 fun displayFlagFor(c:Country):String = if(c.iso.equals("TW",true)) "" else c.flag
+fun flagBackgroundIso(iso:String):String = if(iso.equals("TW",true)) "CN" else iso
 
 fun countryTheme(code:String,name:String):List<Color> =
     flagColorsForIso(countryIsoFor(code,name))
@@ -1356,11 +1357,12 @@ fun usableFlagActionColor(color:Color,fallback:Color):Color = if(flagColorBright
 
 @Composable fun FlagArtPanel(r:PhoneNumberRecord,m:Modifier,bankCardStyle:Boolean=false){
     val iso = countryIsoFor(r.countryCode,r.countryName)
+    val bgIso = flagBackgroundIso(iso)
     val palette = flagPaletteFor(iso,r.countryCode,r.countryName)
     val colors=listOf(palette.primary,palette.secondary)
     val preferredAsset = cardBackgroundPath(r, iso, bankCardStyle)
-    val assetJpg = if(iso.isBlank()) "" else "flag_backgrounds/${iso.lowercase()}.jpg"
-    val assetPng = if(iso.isBlank()) "" else "flag_backgrounds/${iso.lowercase()}.png"
+    val assetJpg = if(bgIso.isBlank()) "" else "flag_backgrounds/${bgIso.lowercase()}.jpg"
+    val assetPng = if(bgIso.isBlank()) "" else "flag_backgrounds/${bgIso.lowercase()}.png"
     val flagBitmap = rememberAssetBitmap(preferredAsset, bankCardStyle) ?: rememberAssetBitmap(assetJpg, bankCardStyle) ?: rememberAssetBitmap(assetPng, bankCardStyle)
     Box(m.background(Brush.linearGradient(colors)),contentAlignment=Alignment.Center){
         if(flagBitmap != null){
@@ -3018,7 +3020,9 @@ fun bankCardSemanticIndex(r:PhoneNumberRecord):Int{
 }
 fun cardBackgroundPath(r:PhoneNumberRecord, iso:String, bankCardStyle:Boolean=false):String{
     val bg=r.cardBackgroundAssetName.trim()
+    val bgIso=flagBackgroundIso(iso)
     if(bg.isNotBlank()){
+        if(iso.equals("TW",true) && (bg.equals("tw",true) || bg.equals("tw.jpg",true) || bg.equals("tw.png",true))) return "flag_backgrounds/cn.jpg"
         return when {
             bg.startsWith("bank_card_") -> "bank_card_backgrounds/$bg"
             bg.endsWith("-lighttrail.jpg") -> "card_backgrounds/$bg"
@@ -3029,7 +3033,7 @@ fun cardBackgroundPath(r:PhoneNumberRecord, iso:String, bankCardStyle:Boolean=fa
         val idx=bankCardSemanticIndex(r)
         return "bank_card_backgrounds/bank_card_${String.format("%03d",idx)}.jpg"
     }
-    return if(iso.isBlank()) "" else "flag_backgrounds/${iso.lowercase()}.jpg"
+    return if(bgIso.isBlank()) "" else "flag_backgrounds/${bgIso.lowercase()}.jpg"
 }
 
 
