@@ -24,7 +24,7 @@ curl -sS https://your-domain.example/api/public-settings
 ```
 
 - [ ] 地球页 Ctrl+F5，`index.html` / `simj-portal.js` 的 `?v=` 为当前版本
-- [ ] 点国家：国旗整块背景、**无**底部管理员入口
+- [ ] 点国家：国旗整块背景、**无**底部管理员入口；西藏区域按中国显示，台湾不显示独立国旗
 - [ ] 登录后「我的号码」卡片墙；App 同步后高亮国家
 
 ## 5. 本地改代码后

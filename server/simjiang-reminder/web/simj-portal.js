@@ -460,11 +460,15 @@
     const display = number || (last4 !== "????" && !isMaskedPlaceholder(rawMask) ? rawMask : "") || (last4 !== "????" ? `•••• ${last4}` : "");
     const code = String(raw.code || raw.countryCode || raw.dialCode || raw.countryDialCode || "").trim();
     const esim = isEsimLike(raw);
+    const iso = String(raw.iso || isoFallback || "").toUpperCase();
+    const name = String(raw.name || raw.countryName || raw.country || nameFallback || "");
+    const rawFlag = String(raw.flag || "");
+    const isTaiwan = iso === "TW" || /taiwan|台湾|台灣/i.test(name) || rawFlag === "🇹🇼";
     return {
       id: String(raw.id || ""),
-      iso: String(raw.iso || isoFallback || "").toUpperCase(),
-      name: String(raw.name || raw.countryName || raw.country || nameFallback || ""),
-      flag: String(raw.flag || ""),
+      iso,
+      name,
+      flag: isTaiwan ? "" : rawFlag,
       number,
       last4,
       display,

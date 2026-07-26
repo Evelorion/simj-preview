@@ -137,9 +137,9 @@ const ZH_NAME_OVERRIDES={TW:'中国台湾省',HK:'中国香港特别行政区',M
 const EN_NAME_OVERRIDES={TW:'Taiwan, China',HK:'Hong Kong',MO:'Macao'};
 const ISO_NAME_OVERRIDES={"France":["FR","FRA"],"Norway":["NO","NOR"],"Somaliland":["SO","SOM"],"Northern Cyprus":["CY","CYP"],"Kosovo":["XK","XKX"],"Taiwan":["TW","TWN"],"Taiwan, China":["TW","TWN"],"Chinese Taipei":["TW","TWN"]};
 const PHONE_LENGTH_HINTS={"AC":"5位","AD":"6位 / 9位","AE":"9位","AF":"9位","AG":"10位","AI":"10位","AL":"9位","AM":"8位","AO":"9位","AR":"10–11位","AS":"10位","AT":"7–13位","AU":"9位","AW":"7位","AX":"6–10位","AZ":"9位","BA":"8–9位","BB":"10位","BD":"10位","BE":"9位","BF":"8位","BG":"8–9位","BH":"8位","BI":"8位","BJ":"10位","BL":"9位","BM":"10位","BN":"7位","BO":"8位","BQ":"7位","BR":"10–11位","BS":"10位","BT":"8位","BW":"8位","BY":"9位","BZ":"7位","CA":"10位","CC":"9位","CD":"7位 / 9位","CF":"8位","CG":"9位","CH":"9位","CI":"10位","CK":"5位","CL":"9位","CM":"9位","CN":"11位","CO":"10位","CR":"8位","CU":"8位","CV":"7位","CW":"7–8位","CX":"9位","CY":"8位","CZ":"9位","DE":"10–11位","DJ":"8位","DK":"8位","DM":"10位","DO":"10位","DZ":"9位","EC":"9位","EE":"7–8位","EG":"10位","EH":"9位","ER":"7位","ES":"9位","ET":"9位","FI":"6–10位","FJ":"7位","FK":"5位","FM":"7位","FO":"6位","FR":"9位","GA":"7–8位","GB":"10位","GD":"10位","GE":"9位","GF":"9位","GG":"10位","GH":"9位","GI":"8位","GL":"6位","GM":"7位","GN":"9位","GP":"9位","GQ":"9位","GR":"10位","GT":"8位","GU":"10位","GW":"9位","GY":"7位","HK":"8位","HN":"8位","HR":"8–9位","HT":"8位","HU":"9位","ID":"9–12位","IE":"9位","IL":"9位","IM":"10位","IN":"10位","IO":"7位","IQ":"10位","IR":"10位","IS":"7位 / 9位","IT":"9–10位","JE":"10位","JM":"10位","JO":"9位","JP":"10位","KE":"9位","KG":"9位","KH":"8–9位","KI":"8位","KM":"7位","KN":"10位","KP":"10位","KR":"9–10位","KW":"8位","KY":"10位","KZ":"10位","LA":"9–10位","LB":"7–8位","LC":"10位","LI":"7位 / 9位","LK":"9位","LR":"7位 / 9位","LS":"8位","LT":"8位","LU":"9位","LV":"8位","LY":"9位","MA":"9位","MC":"8–9位","MD":"8位","ME":"8位","MF":"9位","MG":"9位","MH":"7位","MK":"8位","ML":"8位","MM":"7–10位","MN":"8位","MO":"8位","MP":"10位","MQ":"9位","MR":"8位","MS":"10位","MT":"8位","MU":"8位","MV":"7位","MW":"9位","MX":"10位","MY":"9–10位","MZ":"9位","NA":"9位","NC":"6位","NE":"8位","NF":"6位","NG":"10位","NI":"8位","NL":"9位 / 11位","NO":"8位","NP":"10位","NR":"7位","NU":"4位 / 7位","NZ":"8–10位","OM":"8位","PA":"7–8位","PE":"9位","PF":"8位","PG":"8位","PH":"10位","PK":"10位","PL":"9位","PM":"6位 / 9位","PR":"10位","PS":"9位","PT":"9位","PW":"7位","PY":"9位","QA":"8位","RE":"9位","RO":"9位","RS":"8–10位","RU":"10位","RW":"9位","SA":"9位","SB":"5位 / 7位","SC":"7位","SD":"9位","SE":"9位","SG":"8位","SH":"5位","SI":"8位","SJ":"8位","SK":"9位","SL":"8位","SM":"8位","SN":"9位","SO":"7–9位","SR":"7位","SS":"9位","ST":"7位","SV":"8位","SX":"10位","SY":"9位","SZ":"8位","TA":"暂无统一数据","TC":"10位","TD":"8位","TG":"8位","TH":"9位","TJ":"9位","TK":"4–7位","TL":"8位","TM":"8位","TN":"8位","TO":"7位","TR":"10位","TT":"10位","TV":"6–7位","TW":"9位","TZ":"9位","UA":"9位","UG":"9位","US":"10位","UY":"8位","UZ":"9位","VA":"9–10位","VC":"10位","VE":"10位","VG":"10位","VI":"10位","VN":"9位","VU":"7位","WF":"6位","WS":"7位 / 10位","XK":"8位","YE":"9位","YT":"9位","ZA":"5–9位","ZM":"9位","ZW":"9位"};
-const SOUTH_TIBET_CN_OVERLAY={type:'Feature',properties:{ISO_A2:'CN',ISO_A3:'CHN',NAME:'China',ADMIN:'China',SIMJ_OVERLAY:'CN_ZANGNAN',SIMJ_KEY:'CN_ZANGNAN'},geometry:{type:'Polygon',coordinates:[[[91.55,27.95],[92.20,28.35],[93.55,28.48],[94.35,29.10],[95.40,29.25],[96.35,29.05],[97.35,28.45],[97.25,27.75],[96.35,27.25],[95.35,27.02],[94.25,26.60],[93.15,26.15],[92.25,26.42],[91.55,27.10],[91.55,27.95]]]}};
+const TIBET_CN_OVERLAY={type:'Feature',properties:{ISO_A2:'CN',ISO_A3:'CHN',NAME:'China',ADMIN:'China',SIMJ_OVERLAY:'CN_TIBET',SIMJ_KEY:'CN_TIBET'},geometry:{type:'Polygon',coordinates:[[[78.30,35.70],[79.60,34.80],[81.20,35.20],[82.90,34.50],[84.90,34.60],[86.80,33.70],[88.80,33.30],[90.60,33.00],[92.50,32.30],[94.40,31.60],[96.10,30.40],[97.60,29.40],[98.10,28.20],[97.25,27.75],[96.35,27.25],[95.35,27.02],[94.25,26.60],[93.15,26.15],[92.25,26.42],[91.55,27.10],[90.60,27.75],[89.10,27.35],[87.60,27.80],[86.20,28.35],[84.80,28.65],[83.20,29.05],[81.60,29.50],[80.30,30.10],[79.20,31.20],[78.50,32.60],[78.00,34.00],[78.30,35.70]]]}};
 let MICRO_FEATURES=[]; /* loaded from /data/micro-features.json */
-function injectSpecialFeatures(features){const list=[...features];const isoSet=new Set(list.map(f=>String(f?.properties?.ISO_A2||'').toUpperCase()));for(const f of MICRO_FEATURES){const iso=String(f?.properties?.ISO_A2||'').toUpperCase();if(!isoSet.has(iso)){list.push(f);isoSet.add(iso)}}if(!list.some(f=>f?.properties?.SIMJ_OVERLAY==='CN_ZANGNAN'))list.push(JSON.parse(JSON.stringify(SOUTH_TIBET_CN_OVERLAY)));return list}
+function injectSpecialFeatures(features){const list=[...features];const isoSet=new Set(list.map(f=>String(f?.properties?.ISO_A2||'').toUpperCase()));for(const f of MICRO_FEATURES){const iso=String(f?.properties?.ISO_A2||'').toUpperCase();if(!isoSet.has(iso)){list.push(f);isoSet.add(iso)}}if(!list.some(f=>f?.properties?.SIMJ_OVERLAY==='CN_TIBET'))list.push(JSON.parse(JSON.stringify(TIBET_CN_OVERLAY)));return list}
 
 let OFFLINE_COUNTRY_META=null; /* loaded from /data/offline-country-meta.json */
 let SPECIAL_COUNTRY_META=null; /* loaded from /data/special-country-meta.json */
@@ -215,7 +215,7 @@ function countryAt(coords){
   return best;
 }
 function prepareCountries(features){return injectSpecialFeatures(features).map((f,index)=>{const p=f.properties||{},g=f.geometry||{};const rawPolys=g.type==='Polygon'?[g.coordinates]:g.type==='MultiPolygon'?(g.coordinates||[]):[];const polys=rawPolys.map(poly=>poly.map(prepRing));let minLat=Infinity,maxLat=-Infinity,minLng=Infinity,maxLng=-Infinity,area=0;for(const poly of polys)for(const ring of poly){minLat=Math.min(minLat,ring.minY);maxLat=Math.max(maxLat,ring.maxY);minLng=Math.min(minLng,ring.minX);maxLng=Math.max(maxLng,ring.maxX)}for(const poly of polys)if(poly[0])area+=ringArea(poly[0]);let iso2=(p.ISO_A2||p.iso2||'').toUpperCase(),iso3=(p.ISO_A3||p.iso3||'').toUpperCase();if(iso2==='-99') iso2='';if(iso3==='-99') iso3='';const isoFix=ISO_NAME_OVERRIDES[p.ADMIN||p.NAME];if(isoFix){iso2=isoFix[0];iso3=isoFix[1]}
-// Taiwan often has invalid ISO_A2=-99 in Natural Earth — force TW so flag/meta work
+// Taiwan often has invalid ISO_A2=-99 in Natural Earth — force TW so local meta works.
 const adminName=String(p.ADMIN||p.NAME||p.name||'');
 if((!iso2||iso2==='-99')&&/taiwan|台湾|台灣/i.test(adminName)){iso2='TW';iso3=iso3||'TWN'}
 if(iso2==='TW'||/taiwan|台湾|台灣/i.test(adminName)){iso2='TW';iso3='TWN'}
@@ -679,14 +679,15 @@ function getCountryMeta(c){
   const metaTable=OFFLINE_COUNTRY_META||{};
   const specialTable=SPECIAL_COUNTRY_META||{};
   const fallback=metaTable[iso]||specialTable[c?.__nameEn]||{};
-  // Always prefer packaged flag path when available
+  // Always prefer packaged flag path when available; TW intentionally shows no separate flag.
   let flag=fallback.flag||'';
   if(!flag&&iso&&iso.length===2) flag='/assets/flags/'+iso+'.png';
+  if(iso==='TW') flag='';
   const special={
     HK:{dial:'+852',length:(PHONE_LENGTH_HINTS.HK||'8位'),flag:flag||'/assets/flags/HK.png'},
     MO:{dial:'+853',length:(PHONE_LENGTH_HINTS.MO||'8位'),flag:flag||'/assets/flags/MO.png'},
-    // 中国台湾省：使用打包国旗 TW.png
-    TW:{dial:'+886',length:(PHONE_LENGTH_HINTS.TW||'9位'),flag:flag||'/assets/flags/TW.png'},
+    // 中国台湾省：不显示单独国旗
+    TW:{dial:'+886',length:(PHONE_LENGTH_HINTS.TW||'9位'),flag:''},
     AD:{dial:'+376',length:'6位 / 9位',flag:flag||'/assets/flags/AD.png'},
     CN:{dial:'+86',length:(PHONE_LENGTH_HINTS.CN||'11位'),flag:flag||'/assets/flags/CN.png'},
   };

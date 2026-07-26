@@ -21,6 +21,7 @@ if (!USER) {
 const files = [
   ["web/index.html", "web/index.html"],
   ["web/app/globe-app.js", "web/app/globe-app.js"],
+  ["web/data/offline-country-meta.json", "web/data/offline-country-meta.json"],
   ["web/simj-portal.js", "web/simj-portal.js"],
 ];
 
@@ -38,7 +39,7 @@ conn
         console.log("uploaded", rel, fs.statSync(lp).size);
       }
       conn.exec(
-        "systemctl restart simjiang-reminder; sleep 1; curl -sS http://127.0.0.1:8787/ | tr '\\n' ' ' | grep -oE 'fly8|globe-app' | sort -u; curl -sS -o /dev/null -w 'app:%{size_download}\\n' http://127.0.0.1:8787/app/globe-app.js?v=fly8; echo DONE",
+        "systemctl restart simjiang-reminder; sleep 1; curl -sS http://127.0.0.1:8787/ | tr '\\n' ' ' | grep -oE 'plain-sync-map-tibet-20260726|globe-app' | sort -u; curl -sS -o /dev/null -w 'app:%{size_download}\\n' http://127.0.0.1:8787/app/globe-app.js?v=plain-sync-map-tibet-20260726; echo DONE",
         (e, stream) => {
           let o = "";
           stream.on("data", (d) => (o += d));

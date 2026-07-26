@@ -595,6 +595,7 @@ private fun MapNumberRow(record: PhoneNumberRecord, onClick: () -> Unit) {
         expireText,
         record.balance.ifBlank { null }
     ).filterNotNull().joinToString(" · ")
+    val recordFlag = regionFlagForIso(isoForMapRecord(record), record.flag)
 
     val rowShape = RoundedCornerShape(24.dp)
     Surface(
@@ -616,7 +617,7 @@ private fun MapNumberRow(record: PhoneNumberRecord, onClick: () -> Unit) {
                 contentColor = scheme.onPrimaryContainer
             ) {
                 Box(Modifier.width(56.dp).height(56.dp), contentAlignment = Alignment.Center) {
-                    Text(record.flag.ifBlank { "SIM" }, fontSize = if (record.flag.isBlank()) 13.sp else 24.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center)
+                    Text(recordFlag.ifBlank { "SIM" }, fontSize = if (recordFlag.isBlank()) 13.sp else 24.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center)
                 }
             }
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
