@@ -8,9 +8,9 @@ SIMJ 的自建云同步后端：账号登录、普通完整号码同步、备份
 
 - 账号密码用于登录；同步数据按账号保存在服务器普通 payload 中。
 - 注册时返回的一次性 `privateKey` 只用于忘记密码时重置登录密码。
-- 服务器保存密码哈希、私钥哈希、session、完整号码 payload 和 coverage 元数据。
-- 普通同步取消端到端加密，服务器数据库可读取完整号码；请只部署在你信任的 VPS 上。
-- Web 3D 地图使用内置边界显示层，并对中国相关区域做产品侧显示修正；地图仅用于业务展示，不作为测绘依据。
+- 服务器保存密码哈希、私钥哈希、session、静态加密的完整号码 payload 和不含完整号码的 coverage 元数据。
+- 普通同步取消端到端加密，服务运行时可为已登录账号解密 payload；数据库/备份文件泄露时不会直接暴露完整号码。
+- Web 3D 地图使用当前地图数据源边界，应用侧不注入行政边界覆盖层；地图仅用于业务展示，不作为测绘依据。
 
 ## VPS 推荐配置
 
@@ -121,7 +121,7 @@ sudo chmod +x /opt/simjiang-reminder/backup.sh
 
 ## 4. 安装 Python 依赖
 
-后端使用标准库提供 HTTP 服务。`cryptography` 仅用于兼容旧版 `encryptedVault` 数据自动迁移；当前普通同步不再依赖端到端解密。用 venv 安装最干净：
+后端使用标准库提供 HTTP 服务。`cryptography` 用于兼容旧版 `encryptedVault` 数据迁移，以及普通同步 payload 的 AES-GCM 静态加密。用 venv 安装最干净：
 
 ```bash
 sudo python3 -m venv /opt/simjiang-reminder/.venv
@@ -325,7 +325,7 @@ https://your-domain.example/admin
 - 通过管理后台直接查看用户完整号码明文。
 - 查看用户私钥或私钥尾号。
 
-注意：普通同步模式下，服务器数据库中的账号 payload 包含完整号码。VPS 管理员或拿到数据库的人可以读取这些数据，所以请只部署在可信服务器上。
+注意：普通同步模式下，服务进程运行时可以解密账号 payload；数据库和备份中的 `payload_json` 会以 AES-GCM 密文保存。若攻击者拿到 VPS root、服务环境和 `payload.key`，仍可能解密数据；需要抵御这种级别时必须改回端到端/客户端加密。
 
 ## 备份与数据
 
@@ -352,6 +352,7 @@ bash /opt/simjiang-reminder/backup.sh
 
 - 生产环境建议 HTTPS；Android 可访问 HTTP，但公网明文传输不推荐。
 - 不要把 `SIMJ_PASS`、SSH key、域名证书、数据库、真实服务器 IP 写进仓库。
+- 不要公开 `/opt/simjiang-reminder/payload.key`。迁移整站时需安全转移该 key；只迁移数据库不迁移 key 会导致已加密 payload 无法解密。
 - `8787` 直连适合测试；正式服务建议 Nginx/Caddy 反代。
 - 修改用户名不会改写已有 payload；建议用户登录后从 App 再同步一次。
 - 忘记密码后用 `privateKey` 重置的是登录密码，不影响当前普通同步 payload。

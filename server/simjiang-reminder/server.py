@@ -5,9 +5,10 @@ simJ Cloud — ordinary account-private sync backend (v7)
 Security model
 --------------
 * Login password: PBKDF2 hash stored server-side (login only).
-* Sync payload: the server stores the logged-in account's full records as
-  plaintext JSON in payload_json. This intentionally cancels the previous E2EE
-  model so Web can show complete numbers after ordinary account login.
+* Sync payload: ordinary account sync is readable by the service after login,
+  but payload_json is encrypted at rest with AES-GCM before being written to
+  SQLite. This protects leaked DB/backups; a full root compromise can still
+  access the runtime key.
 * privateKey: random, shown ONCE at register; only SHA-256 stored.
   Used ONLY for password-reset identity.
 * coverage_json: per-account map metadata + optional number card samples
@@ -43,10 +44,14 @@ PORT = int(os.getenv("SIMJ_PORT") or "8787")
 USERNAME_RE = re.compile(r"^[A-Za-z0-9_.@-]{3,64}$")
 PRIVATE_KEY_RE = re.compile(r"^[A-Za-z0-9_-]{24,80}$")
 SESSION_TTL = 60 * 60 * 24 * 7
-SCHEMA_VERSION = "7-plain-sync"
-SERVICE_VERSION = "v7-plain-sync"
+SCHEMA_VERSION = "8-plain-sync-at-rest"
+SERVICE_VERSION = "v8-plain-sync-at-rest"
 SESSION_VAULT_CACHE: dict[str, tuple[int, dict]] = {}
 SESSION_VAULT_LOCK = threading.Lock()
+PAYLOAD_AAD = b"simj:plain-payload:v1"
+PAYLOAD_KEY_FILE = BASE / "payload.key"
+PAYLOAD_ENC_MARKER = "simj-payload-aesgcm-v1"
+PAYLOAD_KEY_CACHE: bytes | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -90,6 +95,75 @@ def b64url_encode(raw: bytes) -> str:
     import base64
 
     return base64.urlsafe_b64encode(raw).decode("ascii").rstrip("=")
+
+
+def payload_storage_key() -> bytes:
+    global PAYLOAD_KEY_CACHE
+    if PAYLOAD_KEY_CACHE:
+        return PAYLOAD_KEY_CACHE
+    configured = clean(os.getenv("SIMJ_PAYLOAD_KEY") or os.getenv("SIMJ_DATA_KEY") or "")
+    if configured:
+        try:
+            raw = b64url_decode(configured)
+        except Exception:
+            raw = configured.encode("utf-8")
+    else:
+        PAYLOAD_KEY_FILE.parent.mkdir(parents=True, exist_ok=True)
+        if PAYLOAD_KEY_FILE.exists():
+            secret = clean(PAYLOAD_KEY_FILE.read_text(encoding="utf-8"))
+        else:
+            secret = b64url_key(32)
+            PAYLOAD_KEY_FILE.write_text(secret + "\n", encoding="utf-8")
+            try:
+                os.chmod(PAYLOAD_KEY_FILE, 0o600)
+            except Exception:
+                pass
+        try:
+            raw = b64url_decode(secret)
+        except Exception:
+            raw = secret.encode("utf-8")
+    PAYLOAD_KEY_CACHE = raw if len(raw) == 32 else hashlib.sha256(raw).digest()
+    return PAYLOAD_KEY_CACHE
+
+
+def is_encrypted_payload_text(text: str) -> bool:
+    try:
+        data = json.loads(text or "")
+    except Exception:
+        return False
+    return isinstance(data, dict) and data.get("simj") == PAYLOAD_ENC_MARKER
+
+
+def encrypt_payload_text(plain_text: str) -> str:
+    if not plain_text:
+        return ""
+    from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+
+    nonce = secrets.token_bytes(12)
+    sealed = AESGCM(payload_storage_key()).encrypt(nonce, plain_text.encode("utf-8"), PAYLOAD_AAD)
+    return json.dumps(
+        {
+            "simj": PAYLOAD_ENC_MARKER,
+            "alg": "AES-256-GCM",
+            "nonce": b64url_encode(nonce),
+            "ciphertext": b64url_encode(sealed),
+        },
+        ensure_ascii=False,
+        separators=(",", ":"),
+    )
+
+
+def decrypt_payload_text(stored_text: str) -> str:
+    text = str(stored_text or "")
+    if not text or not is_encrypted_payload_text(text):
+        return text
+    from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+
+    data = json.loads(text)
+    nonce = b64url_decode(str(data.get("nonce") or ""))
+    sealed = b64url_decode(str(data.get("ciphertext") or ""))
+    plain = AESGCM(payload_storage_key()).decrypt(nonce, sealed, PAYLOAD_AAD)
+    return plain.decode("utf-8")
 
 
 def vault_salt(username: str) -> bytes:
@@ -244,7 +318,7 @@ def plain_payload_from_row(row) -> dict | None:
     if not row:
         return None
     try:
-        payload_json = row["payload_json"]
+        payload_json = decrypt_payload_text(row["payload_json"])
     except Exception:
         payload_json = ""
     return normalized_plain_payload(payload_json)
@@ -253,6 +327,10 @@ def plain_payload_from_row(row) -> dict | None:
 def plain_payload_json(payload: dict) -> str:
     clean_payload = normalized_plain_payload(payload) or {"records": []}
     return json.dumps(clean_payload, ensure_ascii=False, separators=(",", ":"))
+
+
+def payload_json_for_storage(payload: dict) -> str:
+    return encrypt_payload_text(plain_payload_json(payload))
 
 
 def account_plain_payload(conn, account_id: str) -> dict | None:
@@ -366,7 +444,7 @@ def persist_plain_payload(
                 json.dumps(cov, ensure_ascii=False),
                 records,
                 now,
-                plain_payload_json(plain),
+                payload_json_for_storage(plain),
                 "plain",
             ),
         )
@@ -624,6 +702,7 @@ def init_db():
         ("version", SCHEMA_VERSION),
     )
     sanitize_stored_coverage(conn)
+    migrate_payload_storage(conn)
     commit(conn)
     conn.close()
 
@@ -1168,6 +1247,23 @@ def sanitize_stored_coverage(conn):
                 )
 
 
+def migrate_payload_storage(conn):
+    """Encrypt old plaintext payload_json rows without changing API behavior."""
+    for table, key_col in (("encrypted_sync", "account_id"), ("sync_backups", "id")):
+        rows = conn.execute(f"SELECT {key_col}, payload_json FROM {table} WHERE payload_json<>''").fetchall()
+        for row in rows:
+            stored = row["payload_json"] or ""
+            if not stored or is_encrypted_payload_text(stored):
+                continue
+            plain = normalized_plain_payload(stored)
+            if not plain:
+                continue
+            conn.execute(
+                f"UPDATE {table} SET payload_json=? WHERE {key_col}=?",
+                (payload_json_for_storage(plain), row[key_col]),
+            )
+
+
 def records_from_coverage(coverage: dict) -> list[dict]:
     """Build legacy app records from same-account coverage card samples."""
     if not isinstance(coverage, dict):
@@ -1378,6 +1474,7 @@ class H(BaseHTTPRequestHandler):
                         "vaultRecords": vault_payload_record_count(vault_payload),
                         "syncMode": "plain",
                         "hasPlainPayload": has_plain_payload,
+                        "payloadAtRestEncrypted": True,
                         "hasLegacyVault": has_legacy_vault,
                         "needsReloginMigration": False,
                         "serverSettings": public_settings(conn),
@@ -1430,7 +1527,7 @@ class H(BaseHTTPRequestHandler):
                     "nextCheckAt": 0,
                     "dueNow": 0,
                     "mode": "account-plain",
-                    "message": "普通同步模式：服务器可读取当前账号的完整号码数据",
+                    "message": "普通同步模式：服务运行时可读取当前账号数据；数据库 payload 已做静态加密。",
                     "lastStats": {"due": 0, "mail": 0, "tg": 0, "duplicate": 0},
                 },
             )
@@ -1502,7 +1599,7 @@ class H(BaseHTTPRequestHandler):
                             "countryCount": int(cov.get("countryCount") or len(cov.get("countries") or [])),
                             "esims": int(cov.get("esims") or 0),
                             "mode": "account-plain",
-                            "note": "普通同步模式：新备份可保存完整 payload；旧备份可能只有历史密文",
+                            "note": "普通同步模式：完整 payload 以静态加密形式保存；旧备份可能只有历史密文",
                         },
                     },
                 )
@@ -1557,6 +1654,7 @@ class H(BaseHTTPRequestHandler):
                         "records": int(row["records_count"] or 0),
                         "updatedAt": int(row["updated_at"] or 0),
                         "mode": "account-plain",
+                        "payloadAtRestEncrypted": True,
                         "e2ee": False,
                     },
                 )
@@ -2022,7 +2120,7 @@ class H(BaseHTTPRequestHandler):
                         json.dumps(coverage, ensure_ascii=False),
                         records,
                         now,
-                        plain_payload_json(plain_payload) if plain_payload else (existing["payload_json"] if existing else ""),
+                        payload_json_for_storage(plain_payload) if plain_payload else (existing["payload_json"] if existing else ""),
                         "plain" if plain_payload else "e2ee",
                     ),
                 )

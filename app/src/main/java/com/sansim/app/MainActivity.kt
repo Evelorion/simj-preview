@@ -227,6 +227,29 @@ const val PREF = "san_sim_data"
 
 class SanSimApplication: Application() { override fun onCreate(){ super.onCreate(); NotificationHelper.createChannel(this) } }
 
+fun normalizeCycleDays(days:Int, fallback:Int=30):Int {
+    val base = if(days > 0) days else fallback
+    return base.coerceIn(1, 3650)
+}
+
+fun expiryFromStart(startDate:String, days:Int):String {
+    val safeDays = normalizeCycleDays(days)
+    val base = runCatching { LocalDate.parse(startDate) }.getOrNull() ?: LocalDate.now()
+    return base.plusDays(safeDays.toLong()).toString()
+}
+
+fun renewRecord(r:PhoneNumberRecord, days:Int):PhoneNumberRecord {
+    val safeDays = normalizeCycleDays(days, r.cycleDays.takeIf { it > 0 } ?: 30)
+    val today = LocalDate.now()
+    val current = runCatching { LocalDate.parse(r.expireDate) }.getOrNull()
+    val base = if(current != null && current.isAfter(today)) current else today
+    return r.copy(
+        expireDate = base.plusDays(safeDays.toLong()).toString(),
+        cycleDays = safeDays,
+        longTerm = false
+    )
+}
+
 
 
 
@@ -470,8 +493,8 @@ class MainActivity: ComponentActivity(){ private val req=registerForActivityResu
                     }
                     Box(Modifier.weight(1f).fillMaxWidth()){
                         when(screen){
-                            "home"->Home(ctx,records,settings,search,{search=it},filter,sortMode,{filter=it},{sortMode=it},{edit=PhoneNumberRecord()},{edit=it},{r->records=records.filter{it.id!=r.id};DataStore.saveRecords(ctx,records); autoCloudSync(records,settings)},{dial(ctx,it)},{trafficTarget=it},{r,months->val nr=r.copy(expireDate=(runCatching{LocalDate.parse(r.expireDate)}.getOrNull()?:LocalDate.now()).plusDays(months.toLong()).toString());records=records.map{if(it.id==r.id)nr else it};DataStore.saveRecords(ctx,records); autoCloudSync(records,settings)},{ids->reorderRecordsById(ids)})
-                            "keep"->KeepPage(records,{r,m-> val nr=r.copy(expireDate=(runCatching{LocalDate.parse(r.expireDate)}.getOrNull()?:LocalDate.now()).plusDays(m.toLong()).toString()); records=records.map{if(it.id==r.id)nr else it}; DataStore.saveRecords(ctx,records); autoCloudSync(records,settings)})
+                            "home"->Home(ctx,records,settings,search,{search=it},filter,sortMode,{filter=it},{sortMode=it},{edit=PhoneNumberRecord()},{edit=it},{r->records=records.filter{it.id!=r.id};DataStore.saveRecords(ctx,records); autoCloudSync(records,settings)},{dial(ctx,it)},{trafficTarget=it},{r,days->val nr=renewRecord(r,days);records=records.map{if(it.id==r.id)nr else it};DataStore.saveRecords(ctx,records); autoCloudSync(records,settings)},{ids->reorderRecordsById(ids)})
+                            "keep"->KeepPage(records,{r,days-> val nr=renewRecord(r,days); records=records.map{if(it.id==r.id)nr else it}; DataStore.saveRecords(ctx,records); autoCloudSync(records,settings)})
                             "tools"->ToolsPage(ctx,settings,records,{trafficTarget=it},{dial(ctx,it)},{ exportDialog="json" to exportRecordsJson(records,settings) },{ exportDialog="csv" to exportRecordsCsv(records) },{ text-> val (imported,importedSettings)=parseRecordsAndSettings(text); if(imported.isNotEmpty()){ records=imported; DataStore.saveRecords(ctx,records); if(importedSettings!=null){ settings=importedSettings; DataStore.save设置(ctx,settings) }; autoCloudSync(records,settings); toolMessage=tx("导入完成")+"：${records.size} "+tx("个号码")+(if(importedSettings!=null) " + "+tx("配置已恢复") else "") } else toolMessage=tx("导入失败：未识别 JSON/CSV 数据") })
                             "settings"->{
                                 设置Page(ctx,settings,records,currentVersion=currentVersion,onUpdateCheck={
@@ -2660,7 +2683,8 @@ object OperatorLogoAssets {
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable fun KeepCycleDialog(r:PhoneNumberRecord,onKeep:(PhoneNumberRecord,Int)->Unit,onDismiss:()->Unit){
-    var days by remember{ mutableStateOf(30) }
+    var days by remember(r.id, r.cycleDays){ mutableStateOf(normalizeCycleDays(r.cycleDays)) }
+    var customDays by remember(r.id, r.cycleDays){ mutableStateOf(days.toString()) }
     Dialog(onDismissRequest=onDismiss){
         Surface(shape=RoundedCornerShape(30.dp),color=Color(0xFFF2F3F7),modifier=Modifier.fillMaxWidth(.92f).widthIn(max=360.dp)){
             Column(Modifier.fillMaxWidth().padding(horizontal=22.dp,vertical=24.dp),horizontalAlignment=Alignment.CenterHorizontally,verticalArrangement=Arrangement.spacedBy(22.dp)){
@@ -2671,8 +2695,12 @@ object OperatorLogoAssets {
                 Column(Modifier.fillMaxWidth(),horizontalAlignment=Alignment.CenterHorizontally,verticalArrangement=Arrangement.spacedBy(12.dp)){
                     Text(L("选择周期"),fontSize=13.sp,color=Color(0xFF8A94A6),modifier=Modifier.fillMaxWidth(),textAlign=TextAlign.Center)
                     FlowRow(modifier=Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(12.dp, Alignment.CenterHorizontally),verticalArrangement=Arrangement.spacedBy(12.dp)){
-                        listOf(7 to "7",15 to "15",30 to "30",90 to "90",180 to "180",365 to "365").forEach{(d,label)-> IOSChip(label,days==d,Modifier.width(68.dp).height(44.dp)){days=d} }
+                        listOf(7 to "7",15 to "15",30 to "30",90 to "90",180 to "180",365 to "365").forEach{(d,label)-> IOSChip(label,days==d,Modifier.width(68.dp).height(44.dp)){days=d; customDays=d.toString()} }
                     }
+                    IOSField(L("自定义天数"),customDays,{ v->
+                        customDays=v.filter{ it.isDigit() }.take(4)
+                        customDays.toIntOrNull()?.let{ days=normalizeCycleDays(it) }
+                    },L("例如 31 / 45 / 120"))
                 }
                 Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(14.dp)){
                     Button(onClick=onDismiss,modifier=Modifier.weight(1f).height(54.dp),shape=RoundedCornerShape(18.dp),colors=ButtonDefaults.buttonColors(containerColor=Color.White,contentColor=Color(0xFF374151))){Text(L("取消"),fontSize=16.sp)}
@@ -2684,13 +2712,25 @@ object OperatorLogoAssets {
 }
 
 @Composable fun KeepPage(records:List<PhoneNumberRecord>,onKeep:(PhoneNumberRecord,Int)->Unit){
-    var selectedId by remember{ mutableStateOf(records.firstOrNull()?.id ?: "") }; var months by remember{ mutableStateOf(30) }
+    var selectedId by remember{ mutableStateOf(records.firstOrNull()?.id ?: "") }; var days by remember{ mutableStateOf(30) }; var customDays by remember{ mutableStateOf("30") }
     val r=records.firstOrNull{it.id==selectedId} ?: records.firstOrNull()
+    LaunchedEffect(r?.id, r?.cycleDays){
+        val next = normalizeCycleDays(r?.cycleDays ?: 30)
+        days = next
+        customDays = next.toString()
+    }
     Column(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background).padding(20.dp),verticalArrangement=Arrangement.spacedBy(14.dp)){
         if(r==null){Box(Modifier.fillMaxSize(),contentAlignment=Alignment.Center){Text(L("暂无号码"))}} else {
             IOSSection(L("选择号码")){ records.forEach{ item-> KeepChoice(item.operator.ifBlank{item.countryName}+"  "+item.countryCode+" "+maskNumber(formatNumber(item.number)), selectedId==item.id){selectedId=item.id} } }
-            IOSSection(L("选择保号周期")){ listOf(7 to "7",15 to "15",30 to "30",90 to "90",180 to "180",365 to "365").forEach{(m,label)-> KeepChoice(label, months==m){months=m} } }
-            Button(onClick={onKeep(r,months)},modifier=Modifier.fillMaxWidth().height(52.dp),shape=RoundedCornerShape(16.dp),colors=ButtonDefaults.buttonColors(containerColor=Color(0xFF007AFF))){Text(L("确认延长"))}
+            IOSSection(L("选择保号周期")){
+                listOf(7 to "7",15 to "15",30 to "30",90 to "90",180 to "180",365 to "365").forEach{(d,label)-> KeepChoice(label, days==d){days=d; customDays=d.toString()} }
+                IOSDividerLine()
+                IOSField(L("自定义天数"),customDays,{ v->
+                    customDays=v.filter{ it.isDigit() }.take(4)
+                    customDays.toIntOrNull()?.let{ days=normalizeCycleDays(it) }
+                },L("例如 31 / 45 / 120"))
+            }
+            Button(onClick={onKeep(r,days)},modifier=Modifier.fillMaxWidth().height(52.dp),shape=RoundedCornerShape(16.dp),colors=ButtonDefaults.buttonColors(containerColor=Color(0xFF007AFF))){Text(L("确认延长"))}
         }
     }
 }
@@ -3029,6 +3069,7 @@ fun cardBackgroundPath(r:PhoneNumberRecord, iso:String, bankCardStyle:Boolean=fa
 @Composable fun Full编辑Screen(init:PhoneNumberRecord,onDismiss:()->Unit,onSave:(PhoneNumberRecord)->Unit,onDelete:(PhoneNumberRecord)->Unit={}){
     BackHandler { onDismiss() }
     var r by remember { mutableStateOf(init) }
+    var cycleDaysText by remember(init.id) { mutableStateOf(normalizeCycleDays(init.cycleDays).toString()) }
     var countryDlg by remember { mutableStateOf(false) }
     var qrText by remember { mutableStateOf("") }
     var qrDlg by remember { mutableStateOf(false) }
@@ -3155,13 +3196,19 @@ fun cardBackgroundPath(r:PhoneNumberRecord, iso:String, bankCardStyle:Boolean=fa
                             }
                         }
                         IOSDividerLine()
-                        IOSField(L("套餐周期（天）"),r.cycleDays.toString(),{v-> val d=v.filter{it.isDigit()}.toIntOrNull()?:0; r=r.copy(cycleDays=d)},L(""))
+                        IOSField(L("套餐周期（天）"),cycleDaysText,{v->
+                            cycleDaysText=v.filter{it.isDigit()}.take(4)
+                            cycleDaysText.toIntOrNull()?.let{ raw->
+                                val d=normalizeCycleDays(raw)
+                                r=r.copy(cycleDays=d,expireDate=expiryFromStart(r.startDate,d))
+                            }
+                        },L("例如 31 / 45 / 120"))
                         IOSDividerLine()
                         Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(7.dp)){
-                            listOf(7,15,30).forEach{ d-> IOSChip(cycleText(editLang,d),r.cycleDays==d,Modifier.weight(1f)){ r=r.copy(cycleDays=d,expireDate=runCatching{LocalDate.parse(r.startDate).plusDays(d.toLong()).toString()}.getOrElse{LocalDate.now().plusDays(d.toLong()).toString()}) } }
+                            listOf(7,15,30).forEach{ d-> IOSChip(cycleText(editLang,d),r.cycleDays==d,Modifier.weight(1f)){ cycleDaysText=d.toString(); r=r.copy(cycleDays=d,expireDate=expiryFromStart(r.startDate,d)) } }
                         }
                         Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(7.dp)){
-                            listOf(70,90,180,365).forEach{ d-> IOSChip(cycleText(editLang,d),r.cycleDays==d,Modifier.weight(1f)){ r=r.copy(cycleDays=d,expireDate=runCatching{LocalDate.parse(r.startDate).plusDays(d.toLong()).toString()}.getOrElse{LocalDate.now().plusDays(d.toLong()).toString()}) } }
+                            listOf(70,90,180,365).forEach{ d-> IOSChip(cycleText(editLang,d),r.cycleDays==d,Modifier.weight(1f)){ cycleDaysText=d.toString(); r=r.copy(cycleDays=d,expireDate=expiryFromStart(r.startDate,d)) } }
                         }
                         IOSDividerLine()
                         IOSField(L("每周期付款"),if(r.cyclePaymentMinorUnits>0) (r.cyclePaymentMinorUnits/100).toString() else "",{v-> val amt=v.filter{it.isDigit()}.toIntOrNull()?:0; r=r.copy(cyclePaymentMinorUnits=amt*100)},L("6"))
@@ -3259,7 +3306,7 @@ fun cardBackgroundPath(r:PhoneNumberRecord, iso:String, bankCardStyle:Boolean=fa
                 // ── 到期时间 ──
                 item{
                     SettingsSection(L("到期时间")){
-                        Text(L("套餐开始日期"),fontSize=12.sp,color=Color(0xFF8A94A6)); DateOnlyEditor(r.startDate.ifBlank{LocalDate.now().toString()}){r=r.copy(startDate=it)}
+                        Text(L("套餐开始日期"),fontSize=12.sp,color=Color(0xFF8A94A6)); DateOnlyEditor(r.startDate.ifBlank{LocalDate.now().toString()}){r=r.copy(startDate=it,expireDate=expiryFromStart(it,r.cycleDays))}
                         IOSDividerLine()
                         Text(L("套餐时长（从开始日期计算）"),fontSize=12.sp,color=Color(0xFF8A94A6))
                         IOSDividerLine()
@@ -3364,19 +3411,19 @@ fun cardBackgroundPath(r:PhoneNumberRecord, iso:String, bankCardStyle:Boolean=fa
     var y by remember(value){ mutableStateOf(parsed.year.toString()) }
     var m by remember(value){ mutableStateOf(parsed.monthValue.toString().padStart(2,'0')) }
     var d by remember(value){ mutableStateOf(parsed.dayOfMonth.toString().padStart(2,'0')) }
-    fun commit(){
-        if(y.isBlank() || m.isBlank() || d.isBlank()) return
-        val yy=(y.toIntOrNull() ?: parsed.year).coerceIn(1970,9999)
-        val mm=(m.toIntOrNull() ?: parsed.monthValue).coerceIn(1,12)
+    fun commit(nextY:String=y,nextM:String=m,nextD:String=d){
+        if(nextY.isBlank() || nextM.isBlank() || nextD.isBlank()) return
+        val yy=(nextY.toIntOrNull() ?: parsed.year).coerceIn(1970,9999)
+        val mm=(nextM.toIntOrNull() ?: parsed.monthValue).coerceIn(1,12)
         val maxDay=java.time.YearMonth.of(yy,mm).lengthOfMonth()
-        val dd=(d.toIntOrNull() ?: parsed.dayOfMonth).coerceIn(1,maxDay)
+        val dd=(nextD.toIntOrNull() ?: parsed.dayOfMonth).coerceIn(1,maxDay)
         onChange(runCatching{LocalDate.of(yy,mm,dd)}.getOrElse{LocalDate.now().plusDays(30)}.toString())
     }
     Column(verticalArrangement=Arrangement.spacedBy(9.dp)){
         Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(8.dp)){
-            DateBox(L("年"),y,{ v-> y=v.filter{c->c.isDigit()}.takeLast(4); commit() },Modifier.weight(1.25f))
-            DateBox(L("月"),m,{ v-> m=v.filter{c->c.isDigit()}.takeLast(2); commit() },Modifier.weight(.85f))
-            DateBox(L("日"),d,{ v-> d=v.filter{c->c.isDigit()}.takeLast(2); commit() },Modifier.weight(.85f))
+            DateBox(L("年"),y,{ v-> val next=v.filter{c->c.isDigit()}.takeLast(4); y=next; commit(next,m,d) },Modifier.weight(1.25f))
+            DateBox(L("月"),m,{ v-> val next=v.filter{c->c.isDigit()}.takeLast(2); m=next; commit(y,next,d) },Modifier.weight(.85f))
+            DateBox(L("日"),d,{ v-> val next=v.filter{c->c.isDigit()}.takeLast(2); d=next; commit(y,m,next) },Modifier.weight(.85f))
         }
         Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(7.dp)){
             listOf(0,7,30,90).forEach{ n-> DateQuick(laterText(LocalAppLanguage.current,n),Modifier.weight(1f)){onChange(LocalDate.now().plusDays(n.toLong()).toString())} }
@@ -3399,10 +3446,10 @@ fun cardBackgroundPath(r:PhoneNumberRecord, iso:String, bankCardStyle:Boolean=fa
             y=parsed.year.toString(); m=parsed.monthValue.toString(); d=parsed.dayOfMonth.toString()
         }
     }
-    fun commit(){
-        val yy=y.toIntOrNull() ?: return
-        val mm=m.toIntOrNull() ?: return
-        val dd=d.toIntOrNull() ?: return
+    fun commit(nextY:String=y,nextM:String=m,nextD:String=d){
+        val yy=nextY.toIntOrNull() ?: return
+        val mm=nextM.toIntOrNull() ?: return
+        val dd=nextD.toIntOrNull() ?: return
         if(mm !in 1..12) return
         val maxDay=runCatching{ java.time.YearMonth.of(yy,mm).lengthOfMonth() }.getOrElse{31}
         if(dd !in 1..maxDay) return
@@ -3410,9 +3457,9 @@ fun cardBackgroundPath(r:PhoneNumberRecord, iso:String, bankCardStyle:Boolean=fa
     }
     Column(verticalArrangement=Arrangement.spacedBy(9.dp)){
         Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(8.dp)){
-            DateBox(L("年"),y,{ v-> y=v.filter{c->c.isDigit()}.take(4); commit() },Modifier.weight(1.25f))
-            DateBox(L("月"),m,{ v-> m=v.filter{c->c.isDigit()}.take(2); commit() },Modifier.weight(.85f))
-            DateBox(L("日"),d,{ v-> d=v.filter{c->c.isDigit()}.take(2); commit() },Modifier.weight(.85f))
+            DateBox(L("年"),y,{ v-> val next=v.filter{c->c.isDigit()}.take(4); y=next; commit(next,m,d) },Modifier.weight(1.25f))
+            DateBox(L("月"),m,{ v-> val next=v.filter{c->c.isDigit()}.take(2); m=next; commit(y,next,d) },Modifier.weight(.85f))
+            DateBox(L("日"),d,{ v-> val next=v.filter{c->c.isDigit()}.take(2); d=next; commit(y,m,next) },Modifier.weight(.85f))
         }
         Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(7.dp)){
             listOf(0,7,30,90).forEach{ n-> DateQuick(laterText(LocalAppLanguage.current,n),Modifier.weight(1f)){ val nd=LocalDate.now().plusDays(n.toLong()); y=nd.year.toString(); m=nd.monthValue.toString(); d=nd.dayOfMonth.toString(); onChange(nd.toString()) } }

@@ -95,10 +95,10 @@ simj-preview/
 
 | 层 | 存什么 | 服务器能否看明文 | 用途 |
 |----|--------|------------------|------|
-| **payload_json / payload** | 完整号码 + 设置 JSON | **能** | 换机恢复、Web 完整号码卡片 |
-| **coverage** | 按国家统计 + samples 卡片字段 | **能**（仅该账号登录后 API 返回） | 地球高亮、卡片摘要、兼容回退 |
+| **payload_json / payload** | 完整号码 + 设置 JSON | **运行时能；SQLite 落库加密** | 换机恢复、Web 完整号码卡片 |
+| **coverage** | 按国家统计 + samples 摘要字段 | 不存完整号码 | 地球高亮、卡片摘要、兼容回退 |
 
-> 当前 v7 是普通同步模式：服务器数据库可以读取完整号码。请只部署在可信 VPS 上，公网建议 HTTPS。
+> 当前 v8 是普通同步 + 静态加密模式：数据库或备份文件泄露时不直接暴露完整 payload；服务运行时仍可解密给已登录账号使用。若攻击者获得 VPS root 和运行时密钥，普通同步无法做到零知识保护；这种级别只能使用端到端/客户端加密。
 > 旧版 `encryptedVault` 仅作为兼容迁移来源；登录成功后会尽量迁移为普通 payload。
 
 ---
@@ -128,7 +128,13 @@ App 使用 `cloudPlainSyncPayload(records, settings)` 打包：
 }
 ```
 
-服务端写入 `encrypted_sync.payload_json`，并继续维护 `coverage_json` 供地图和卡片摘要使用。
+服务端写入 `encrypted_sync.payload_json` 前会用 AES-GCM 做静态加密，并继续维护不含完整号码的 `coverage_json` 供地图和卡片摘要使用。
+
+静态加密密钥来源：
+
+- 优先读取环境变量 `SIMJ_PAYLOAD_KEY` / `SIMJ_DATA_KEY`。
+- 未配置时自动生成 `/opt/simjiang-reminder/payload.key`，权限尽量设为 `0600`。
+- 备份数据库时不要把 `payload.key` 放进公开仓库；迁移整站时必须同时安全转移该 key，否则旧 payload 无法解密。
 
 兼容说明：
 
@@ -176,10 +182,10 @@ cd /opt/simjiang-reminder
 |----|------|
 | `accounts` | 用户：密码哈希、私钥哈希、role、enabled |
 | `sessions` | token、account_id、过期时间（默认 7 天） |
-| `encrypted_sync` | 每账号一份：payload_json + coverage_json + records_count；保留 envelope 兼容旧数据 |
-| `sync_backups` | 每次同步前备份旧 payload/envelope（可恢复/清理） |
+| `encrypted_sync` | 每账号一份：加密 payload_json + coverage_json + records_count；保留 envelope 兼容旧数据 |
+| `sync_backups` | 每次同步前备份旧加密 payload/envelope（可恢复/清理） |
 | `server_settings` | 键值：是否开放注册、管理员 2FA、兼容旧设置项 |
-| `schema_meta` | `version` = `7-plain-sync` |
+| `schema_meta` | `version` = `8-plain-sync-at-rest` |
 
 **首个注册用户** 自动成为 `admin`（见 `register_account`）。
 
@@ -274,7 +280,7 @@ cd /opt/simjiang-reminder
 }
 ```
 
-`normalize_coverage()` 会清洗 samples（最多每国 120 条），**允许完整 number 字段**（仅账号会话可 GET，非公开接口）。
+`normalize_coverage()` 会清洗 samples（最多每国 120 条），只保留 `last4/mask` 等摘要，不保留完整 `number`。完整号码只来自登录账号可解密的 payload。
 
 **GET /api/sync 返回重点**
 
@@ -297,7 +303,7 @@ cd /opt/simjiang-reminder
 | 方法 | 路径 | 说明 |
 |------|------|------|
 | GET | `/api/backups?limit=N` | 列表 |
-| GET | `/api/backups/{id}` | 详情（payload_json + 旧 envelope 兼容字段） |
+| GET | `/api/backups/{id}` | 详情摘要（payload_json 不直接返回；旧 envelope 兼容字段仅服务端恢复使用） |
 | POST | `/api/restore-backup` | `{backupId}` 把备份写回 encrypted_sync |
 | POST | `/api/backups/clear` | 清理旧备份 |
 
@@ -424,7 +430,7 @@ adb install -r app\build\outputs\apk\debug\app-debug.apk
 | `cloudCoverage` | 生成 coverage + samples |
 | `cloudRequest` / `cloudPost` / `cloudGet` | HTTP（Bearer token、Connection: close、重试 ProtocolException） |
 | `analyzeCloudSyncResponse` | 拉包诊断：普通 payload / coverage 回退 |
-| `recordsFromCoverageJson` | 从 samples 还原记录（需有完整 number） |
+| `recordsFromCoverageJson` | 从旧 samples 还原记录（仅兼容历史数据；新 coverage 不含完整 number） |
 | `mergeRecords` / `mergeCloudSettings` | 多端合并 |
 | `设置Page` 内云端 UI | 登录/注册/同步/恢复 |
 
@@ -502,7 +508,7 @@ systemctl restart simjiang-reminder
 ### 8.2 忘记密码
 
 1. 重置：用户名 + 私钥 + 新密码。
-2. 用**新密码**登录；普通同步 payload 不需要重新加密。
+2. 用**新密码**登录；普通同步 payload 的静态加密 key 在服务端，不随登录密码变化。
 
 ### 8.3 网页有统计但看不到完整号码
 
@@ -522,7 +528,7 @@ systemctl restart simjiang-reminder
 4. 改 Web **必须 bump `?v=`**。
 5. **不要**再把 privateKey 写入 `cloudApiKey`；privateKey 只用于重置密码。
 6. `cleanCloudApiKey` 名字历史遗留；HTTP 鉴权必须用 `cloudToken`。
-7. 服务器普通 payload 可读完整号码；排障时重点看 `payload_json`、`coverage_json` 和 `/api/status.syncMode`。
+7. 普通同步下服务运行时可读完整号码，但 `payload_json` 落库为 AES-GCM 密文；排障时重点看 `/api/status.syncMode`、`records_count`、`coverage_json` 摘要和服务日志，不要把密钥或数据库提交到仓库。
 8. 部署只动 `/opt/simjiang-reminder`。
 
 ---
