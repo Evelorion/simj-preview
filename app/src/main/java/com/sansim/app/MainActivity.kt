@@ -3850,7 +3850,7 @@ fun cloudRequest(s:App设置,path:String,method:String="POST",body:String="{}",l
             // Avoid keep-alive reuse bugs with short-lived Python HTTP/1.x responses
             c.setRequestProperty("Connection","close")
             c.setRequestProperty("Accept","application/json")
-            c.setRequestProperty("User-Agent","DsimJ-Android/3.0.24")
+            c.setRequestProperty("User-Agent","DsimJ-Android/3.0.25")
             if(needsAuth){
                 c.setRequestProperty("Authorization","Bearer $token")
             }
@@ -3903,7 +3903,7 @@ fun cloudRequest(s:App设置,path:String,method:String="POST",body:String="{}",l
             c.requestMethod=method.uppercase(); c.connectTimeout=15000; c.readTimeout=25000
             c.setRequestProperty("Connection","close")
             c.setRequestProperty("Accept","application/json")
-            c.setRequestProperty("User-Agent","DsimJ-Android/3.0.24")
+            c.setRequestProperty("User-Agent","DsimJ-Android/3.0.25")
             if(needsAuth){
                 c.setRequestProperty("Authorization","Bearer $token")
             }
