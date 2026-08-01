@@ -88,6 +88,7 @@ import androidx.compose.material.icons.rounded.VisibilityOff
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.Alignment
@@ -248,6 +249,19 @@ fun renewRecord(r:PhoneNumberRecord, days:Int):PhoneNumberRecord {
         cycleDays = safeDays,
         longTerm = false
     )
+}
+
+@Composable
+fun rememberCurrentDate():LocalDate {
+    var today by remember { mutableStateOf(LocalDate.now()) }
+    LaunchedEffect(Unit) {
+        while(true) {
+            delay(60_000L)
+            val current = LocalDate.now()
+            if(current != today) today = current
+        }
+    }
+    return today
 }
 
 
@@ -2356,7 +2370,7 @@ object OperatorLogoAssets {
 }
 
 @Composable fun Home(ctx:Context,records:List<PhoneNumberRecord>,settings:App设置,search:String,onSearch:(String)->Unit,filter:String,sortMode:String,on筛选:(String)->Unit,on排序:(String)->Unit,onAdd:()->Unit,on编辑:(PhoneNumberRecord)->Unit,onDel:(PhoneNumberRecord)->Unit,onDial:(PhoneNumberRecord)->Unit,onTraffic:(PhoneNumberRecord)->Unit,onKeep:(PhoneNumberRecord,Int)->Unit,onReorder:(List<String>)->Unit={}){
-    val today=LocalDate.now()
+    val today=rememberCurrentDate()
     fun daysOf(r:PhoneNumberRecord)=runCatching{LocalDate.parse(r.expireDate).toEpochDay()-today.toEpochDay()}.getOrNull()
     val q=search.trim().lowercase()
     var sorting by remember{ mutableStateOf(false) }
@@ -2459,7 +2473,7 @@ object OperatorLogoAssets {
 
 @Composable fun CompactExpressiveHomeSummary(records:List<PhoneNumberRecord>,settings:App设置){
     val scheme=MaterialTheme.colorScheme
-    val today=LocalDate.now()
+    val today=rememberCurrentDate()
     fun daysOf(r:PhoneNumberRecord)=runCatching{LocalDate.parse(r.expireDate).toEpochDay()-today.toEpochDay()}.getOrNull()
     val expired=records.count{ (daysOf(it) ?: Long.MAX_VALUE) < 0 }
     val dueSoon=records.count{ val d=daysOf(it); d!=null && d in 0..settings.remind天}
@@ -2502,7 +2516,7 @@ object OperatorLogoAssets {
     CompactExpressiveHomeSummary(records,settings)
     return
     val scheme=MaterialTheme.colorScheme
-    val today=LocalDate.now()
+    val today=rememberCurrentDate()
     fun daysOf(r:PhoneNumberRecord)=runCatching{LocalDate.parse(r.expireDate).toEpochDay()-today.toEpochDay()}.getOrNull()
     val expired=records.count{ (daysOf(it) ?: Long.MAX_VALUE) < 0 }
     val dueSoon=records.count{ val d=daysOf(it); d!=null && d in 0..settings.remind天}
@@ -2539,7 +2553,7 @@ object OperatorLogoAssets {
     ExpressiveHomeSummary(records,settings)
     return
     val scheme=MaterialTheme.colorScheme
-    val today=LocalDate.now()
+    val today=rememberCurrentDate()
     fun daysOf(r:PhoneNumberRecord)=runCatching{LocalDate.parse(r.expireDate).toEpochDay()-today.toEpochDay()}.getOrNull()
     val expired=records.count{ (daysOf(it) ?: Long.MAX_VALUE) < 0 }
     val dueSoon=records.count{ val d=daysOf(it); d!=null && d in 0..settings.remind天 }
@@ -2592,7 +2606,7 @@ object OperatorLogoAssets {
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable fun DefaultNumberCard(r:PhoneNumberRecord,on编辑:(PhoneNumberRecord)->Unit,onDel:(PhoneNumberRecord)->Unit,onDial:(PhoneNumberRecord)->Unit,onTraffic:(PhoneNumberRecord)->Unit,onKeep:(PhoneNumberRecord,Int)->Unit){
-    val today=LocalDate.now(); val days=runCatching{LocalDate.parse(r.expireDate).toEpochDay()-today.toEpochDay()}.getOrNull()
+    val today=rememberCurrentDate(); val days=runCatching{LocalDate.parse(r.expireDate).toEpochDay()-today.toEpochDay()}.getOrNull()
     val color=when{days==null->Color(0xFF8A94A6);days<0->Color(0xFFFF3B30);days<=7->Color(0xFFFF9500);else->Color(0xFF34C759)}
     var confirmDelete by remember{ mutableStateOf(false) }
     var keepDlg by remember{ mutableStateOf(false) }
@@ -2897,7 +2911,7 @@ object OperatorLogoAssets {
 
 @Composable fun SimHubCard(r:PhoneNumberRecord,on编辑:(PhoneNumberRecord)->Unit,onDel:(PhoneNumberRecord)->Unit,onDial:(PhoneNumberRecord)->Unit,onTraffic:(PhoneNumberRecord)->Unit,onKeep:(PhoneNumberRecord,Int)->Unit){
     val exp=runCatching{LocalDate.parse(r.expireDate)}.getOrNull()
-    val today=LocalDate.now()
+    val today=rememberCurrentDate()
     val days=exp?.toEpochDay()?.minus(today.toEpochDay())
     val progress=if(days==null) 0f else (days.coerceIn(0,90)/90f).coerceIn(0f,1f)
     val longTerm = days!=null && days>60
