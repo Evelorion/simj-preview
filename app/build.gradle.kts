@@ -21,7 +21,7 @@ val updateRepoName = providers.gradleOrEnv("simj.updateRepoName", "SIMJ_UPDATE_R
 
 android { namespace = "com.sansim.app"; compileSdk = 35
     defaultConfig {
-        applicationId = "com.sansim.app"; minSdk = 26; targetSdk = 35; versionCode = 3025; versionName = "3.0.25-pre"
+        applicationId = "com.sansim.app"; minSdk = 26; targetSdk = 35; versionCode = 3026; versionName = "3.0.25"
         buildConfigField("String", "SIMJ_UPDATE_REPO_OWNER", "\"${updateRepoOwner.escapedForBuildConfig()}\"")
         buildConfigField("String", "SIMJ_UPDATE_REPO_NAME", "\"${updateRepoName.escapedForBuildConfig()}\"")
     }
